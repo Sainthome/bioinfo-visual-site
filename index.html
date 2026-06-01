@@ -216,8 +216,9 @@ async function showResult() {
       $("meta").innerHTML = "";
       return;
     }
+    const intersectionGenes = Array.isArray(item.intersection_genes) ? item.intersection_genes : (item.intersection_genes ? [item.intersection_genes] : []);
     $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "Venn plot")}</div>`;
-    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：<span class="gene-list">${(item.intersection_genes || []).join(", ")}</span>`;
+    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因数量：${intersectionGenes.length}<br>交集基因：<span class="gene-list">${intersectionGenes.join(", ")}</span>`;
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
   }
 }
