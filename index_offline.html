@@ -19,13 +19,15 @@
     .summary { display:grid; grid-template-columns: repeat(4, minmax(160px,1fr)); gap:10px; }
     .metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfd; }
     .metric strong { display:block; font-size:20px; margin-top:4px; }
-    .result-grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
-    .plot-box { overflow:auto; min-height:420px; display:flex; align-items:center; justify-content:center; background:#fff; }
+    .result-grid { display:grid; grid-template-columns: minmax(0, 1fr) 380px; gap:16px; align-items:start; }
+    .plot-box { overflow:auto; min-height:420px; display:flex; align-items:flex-start; justify-content:flex-start; background:#fff; }
     .plot-box img { max-width:100%; height:auto; }
-    .plot-stack { display:flex; flex-direction:column; gap:14px; align-items:center; width:100%; }
+    .plot-stack { display:flex; flex-direction:column; gap:14px; align-items:flex-start; width:100%; }
     .plot-stack img { max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:white; }
     .subhead { font-size:15px; font-weight:700; margin:14px 0 8px; }
-    .meta { font-size:14px; line-height:1.65; color:#2a3441; }
+    aside { position:sticky; top:12px; align-self:start; max-height:calc(100vh - 24px); overflow:auto; }
+    .meta { font-size:14px; line-height:1.65; color:#2a3441; overflow-wrap:anywhere; word-break:break-word; }
+    .meta .gene-list { display:block; max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:8px; margin-top:6px; background:#fbfcfd; }
     .links { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
     .links a { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--blue); text-decoration:none; background:#fff; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -180,13 +182,13 @@ async function showResult() {
     $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${h.pdf}" download>下载热图 PDF</a>`).join("")}`;
   } else if (method === "GO") {
     item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && x.sort === goSortSel.value && variantOf(x.gene_set) === variantSel.value);
-    $("plotBox").innerHTML = `<img src="${item.svg}" alt="GO plot">`;
+    $("plotBox").innerHTML = `<div class="plot-stack"><img src="${item.svg}" alt="GO plot"></div>`;
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
     await showTable(item.table_csv);
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
   } else if (method === "GSEA") {
     item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
-    $("plotBox").innerHTML = `<img src="${item.svg}" alt="GSEA plot">`;
+    $("plotBox").innerHTML = `<div class="plot-stack"><img src="${item.svg}" alt="GSEA plot"></div>`;
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
     await showTable(item.table_csv);
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
@@ -200,13 +202,13 @@ async function showResult() {
       $("meta").innerHTML = "";
       return;
     }
-    $("plotBox").innerHTML = `<img src="${item.svg}" alt="Venn plot">`;
-    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
+    $("plotBox").innerHTML = `<div class="plot-stack"><img src="${item.svg}" alt="Venn plot"></div>`;
+    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：<span class="gene-list">${(item.intersection_genes || []).join(", ")}</span>`;
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
   }
 }
 manifest = {
-  "generated_at": "2026-06-01 20:15:11",
+  "generated_at": "2026-06-01 20:51:26",
   "expression_matrices": [
     {
       "object": "crpc_expr2443",
@@ -1937,6 +1939,7 @@ manifest = {
       "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.pdf",
       "rows": 149,
       "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
       "source_file": "Denervation_Aver_expression.xlsx"
     },
     {
@@ -1948,6 +1951,7 @@ manifest = {
       "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.pdf",
       "rows": 107,
       "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
       "source_file": "Denervation_everyn_expression.xlsx"
     },
     {
@@ -1959,6 +1963,7 @@ manifest = {
       "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3up.pdf",
       "rows": 100,
       "columns": 19,
+      "groups": ["BB12", "BB123", "Control"],
       "source_file": "BB3_1.5x_expression.xlsx"
     },
     {
@@ -1970,6 +1975,7 @@ manifest = {
       "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3down.pdf",
       "rows": 75,
       "columns": 19,
+      "groups": ["Prop", "Combi", "Control"],
       "source_file": "BB3_1.5x_expression.xlsx"
     }
   ],

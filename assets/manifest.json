@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-01 20:15:11",
+  "generated_at": "2026-06-01 20:51:26",
   "expression_matrices": [
     {
       "object": "crpc_expr2443",
@@ -1730,6 +1730,7 @@
       "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.pdf",
       "rows": 149,
       "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
       "source_file": "Denervation_Aver_expression.xlsx"
     },
     {
@@ -1741,6 +1742,7 @@
       "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.pdf",
       "rows": 107,
       "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
       "source_file": "Denervation_everyn_expression.xlsx"
     },
     {
@@ -1752,6 +1754,7 @@
       "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3up.pdf",
       "rows": 100,
       "columns": 19,
+      "groups": ["BB12", "BB123", "Control"],
       "source_file": "BB3_1.5x_expression.xlsx"
     },
     {
@@ -1763,6 +1766,7 @@
       "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3down.pdf",
       "rows": 75,
       "columns": 19,
+      "groups": ["Prop", "Combi", "Control"],
       "source_file": "BB3_1.5x_expression.xlsx"
     }
   ],
