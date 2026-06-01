@@ -98,10 +98,18 @@ function imageHtml(src, alt) {
 function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 
 function sortLabel(x) {
-  if ((x || "").toLowerCase() === "generatio") return "按GeneRatio排列";
-  if ((x || "").toLowerCase() === "foldenrichment") return "按FoldEnrichment排列";
-  if ((x || "").toLowerCase() === "enrichgo") return "enrichGO";
-  return x || "";
+  const k = sortKey(x);
+  if (k === "GeneRatio") return "按GeneRatio排列";
+  if (k === "FoldEnrichment") return "按FoldEnrichment排列";
+  if (k === "enrichGO") return "enrichGO";
+  return k;
+}
+function sortKey(x) {
+  const s = String(x || "").toLowerCase();
+  if (s.includes("generatio") || s.includes("gene ratio")) return "GeneRatio";
+  if (s.includes("foldenrichment") || s.includes("fold")) return "FoldEnrichment";
+  if (s.includes("enrichgo")) return "enrichGO";
+  return String(x || "");
 }
 function withCount(label, count) {
   return count === null || count === undefined || count === "" ? label : `${label} (${count})`;
@@ -156,15 +164,17 @@ function refreshControls() {
   if (method === "差异基因") {
     opt(geneSetSel, manifest.deg_sets.map(x => ({ value: x.name, label: withCount(x.display_name || displayName(x.name), x.all_count) })));
   } else if (method === "GO") {
-    const sorts = [...new Set(manifest.go.map(x => x.sort))];
-    const previousSort = goSortSel.value;
+    const sorts = [...new Set(manifest.go.map(x => sortKey(x.sort)))];
+    const previousSort = sortKey(goSortSel.value);
     opt(goSortSel, sorts.map(s => ({ value: s, label: sortLabel(s) })));
     if (sorts.includes(previousSort)) goSortSel.value = previousSort;
     const sort = goSortSel.value || sorts[0];
     const variant = variantSel.value || "all";
-    const filtered = manifest.go.filter(x => x.sort === sort && variantOf(x.gene_set) === variant);
+    const previousGeneSet = geneSetSel.value;
+    const filtered = manifest.go.filter(x => sortKey(x.sort) === sortKey(sort) && variantOf(x.gene_set) === variant);
     const seenGo = new Set();
     opt(geneSetSel, filtered.filter(x => { const b = goBaseName(x.gene_set); if (seenGo.has(b)) return false; seenGo.add(b); return true; }).map(x => ({ value: goBaseName(x.gene_set), label: withCount(displayName(goBaseName(x.gene_set)), countForGoItem(x)) })));
+    if ([...geneSetSel.options].some(o => o.value === previousGeneSet)) geneSetSel.value = previousGeneSet;
   } else if (method === "GSEA") {
     const seen = new Set();
     opt(geneSetSel, manifest.gsea.filter(x => { if (seen.has(x.gene_set)) return false; seen.add(x.gene_set); return true; }).map(x => ({ value: x.gene_set, label: withCount(x.display_name || displayName(x.gene_set), countForGseaItem(x)) })));
@@ -235,7 +245,12 @@ async function showResult() {
     await renderTable(item.table_csv);
     $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${h.pdf}" download>下载热图 PDF</a>`).join("")}`;
   } else if (method === "GO") {
-    item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && x.sort === goSortSel.value && variantOf(x.gene_set) === variantSel.value);
+    item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && sortKey(x.sort) === sortKey(goSortSel.value) && variantOf(x.gene_set) === variantSel.value);
+    if (!item) {
+      $("plotBox").innerHTML = "<div>未找到当前 GO 排序和基因集组合，请重新选择。</div>";
+      $("meta").innerHTML = "";
+      return;
+    }
     $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "GO plot")}</div>`;
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
     await showTable(item.table_csv);
