@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>新队列分析可视化</title>
+  <style>
+    :root { color-scheme: light; --line:#d8dde3; --ink:#1b2430; --muted:#5f6b7a; --blue:#0f7f99; --brown:#8b5a3c; --bg:#f5f7fa; }
+    body { margin:0; font-family: "Microsoft YaHei", Arial, sans-serif; background:var(--bg); color:var(--ink); }
+    header { background:#fff; border-bottom:1px solid var(--line); padding:18px 28px; }
+    h1 { margin:0; font-size:24px; }
+    main { max-width:1320px; margin:0 auto; padding:22px; }
+    .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+    .controls { display:grid; grid-template-columns: repeat(4, minmax(180px,1fr)); gap:12px; align-items:end; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+    select, button, input { width:100%; box-sizing:border-box; border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:9px 10px; font-size:14px; }
+    button { cursor:pointer; background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
+    .secondary { background:#fff; color:var(--blue); }
+    .summary { display:grid; grid-template-columns: repeat(4, minmax(160px,1fr)); gap:10px; }
+    .metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfd; }
+    .metric strong { display:block; font-size:20px; margin-top:4px; }
+    .result-grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
+    .plot-box { overflow:auto; min-height:420px; display:flex; align-items:center; justify-content:center; background:#fff; }
+    .plot-box img { max-width:100%; height:auto; }
+    .meta { font-size:14px; line-height:1.65; color:#2a3441; }
+    .links { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    .links a { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--blue); text-decoration:none; background:#fff; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { border-bottom:1px solid var(--line); padding:7px 8px; text-align:left; white-space:nowrap; }
+    th { position:sticky; top:0; background:#eef3f6; }
+    .table-wrap { max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+    .hidden { display:none; }
+    @media (max-width: 900px) { .controls, .summary, .result-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header><h1>新队列分析可视化</h1></header>
+<main>
+  <section class="panel">
+    <div class="controls">
+      <div><label>分析方法</label><select id="method"></select></div>
+      <div><label>基因集 / 结果集</label><select id="geneSet"></select></div>
+      <div id="geneSet2Wrap"><label>基因集 2</label><select id="geneSet2"></select></div>
+      <div id="variantWrap"><label>上下调 / 全部</label><select id="variant"><option value="all">全部</option><option value="up">上调</option><option value="down">下调</option></select></div>
+      <div id="backgroundWrap"><label>GSEA 背景队列</label><select id="background"></select></div>
+      <div id="goSortWrap"><label>GO 排序</label><select id="goSort"></select></div>
+      <div><button id="showBtn">显示结果</button></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="summary" id="summary"></div>
+  </section>
+  <section class="panel result-grid">
+    <div>
+      <div id="plotBox" class="plot-box"></div>
+      <div id="tableBox" class="table-wrap hidden"></div>
+    </div>
+    <aside>
+      <h2 style="font-size:18px;margin-top:0;">结果信息</h2>
+      <div id="meta" class="meta"></div>
+      <div id="links" class="links"></div>
+    </aside>
+  </section>
+</main>
+<script>
+let manifest;
+const $ = id => document.getElementById(id);
+const methodSel = $("method"), geneSetSel = $("geneSet"), geneSet2Sel = $("geneSet2"), variantSel = $("variant"), bgSel = $("background"), goSortSel = $("goSort");
+const methods = ["差异基因", "GSEA", "GO", "Venn"];
+
+function opt(sel, values) {
+  sel.innerHTML = "";
+  values.forEach(v => {
+    const o = document.createElement("option");
+    if (typeof v === "object") { o.value = v.value; o.textContent = v.label; } else { o.value = v; o.textContent = v; }
+    sel.appendChild(o);
+  });
+}
+function baseNameFromGo(item) { return item.gene_set.replace(/_(allDEGs|upDEGs|downDEGs)$/,"").replace(/(all|up|down)$/,""); }
+function variantOf(name) {
+  if (/downDEGs$|down\d*$|_down$/i.test(name)) return "down";
+  if (/upDEGs$|up\d*$|_up$/i.test(name)) return "up";
+  return "all";
+}
+function goBaseName(name) {
+  return name
+    .replace(/_1_5x_(allDEGs|upDEGs|downDEGs)$/i, "_1_5x")
+    .replace(/_(allDEGs|upDEGs|downDEGs)$/i, "")
+    .replace(/_1_5x(all|up|down)(\d+)?$/i, "_1_5x")
+    .replace(/(all|up|down)(\d+)?$/i, "");
+}
+function refreshControls() {
+  const method = methodSel.value;
+  $("backgroundWrap").classList.toggle("hidden", method !== "GSEA");
+  $("goSortWrap").classList.toggle("hidden", method !== "GO");
+  $("geneSet2Wrap").classList.toggle("hidden", method !== "Venn");
+  $("variantWrap").classList.toggle("hidden", method === "GSEA" || method === "Venn");
+  if (method === "差异基因") {
+    opt(geneSetSel, manifest.deg_sets.map(x => x.name));
+  } else if (method === "GO") {
+    opt(goSortSel, [...new Set(manifest.go.map(x => x.sort))]);
+    const sort = goSortSel.value || [...new Set(manifest.go.map(x => x.sort))][0];
+    const variant = variantSel.value || "all";
+    const filtered = manifest.go.filter(x => x.sort === sort && variantOf(x.gene_set) === variant);
+    opt(geneSetSel, [...new Set(filtered.map(x => goBaseName(x.gene_set)))]);
+  } else if (method === "GSEA") {
+    opt(geneSetSel, [...new Set(manifest.gsea.map(x => x.gene_set))]);
+    refreshBackgrounds();
+  } else {
+    opt(geneSetSel, manifest.venn_sets.map(x => x.name));
+    opt(geneSet2Sel, manifest.venn_sets.map(x => x.name));
+    if (geneSet2Sel.selectedIndex === geneSetSel.selectedIndex && geneSet2Sel.options.length > 1) {
+      geneSet2Sel.selectedIndex = 1;
+    }
+  }
+}
+function refreshBackgrounds() {
+  const gs = geneSetSel.value;
+  opt(bgSel, manifest.gsea.filter(x => x.gene_set === gs).map(x => ({ value: x.background, label: x.background_label || x.background })));
+}
+async function loadCsv(path) {
+  const txt = await fetch(path).then(r => r.text());
+  const rows = txt.trim().split(/\r?\n/).map(line => {
+    const out = []; let cur = "", q = false;
+    for (let i=0;i<line.length;i++) {
+      const ch = line[i], nx = line[i+1];
+      if (ch === "\"" && q && nx === "\"") { cur += ch; i++; }
+      else if (ch === "\"") q = !q;
+      else if (ch === "," && !q) { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur); return out;
+  });
+  const head = rows.shift();
+  return {head, rows};
+}
+async function renderTable(path) {
+  const {head, rows} = await loadCsv(path);
+  const shown = rows.slice(0, 300);
+  $("tableBox").innerHTML = `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${shown.map(r=>`<tr>${head.map((_,i)=>`<td>${r[i] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function setSummary() {
+  $("summary").innerHTML = `
+    <div class="metric">表达矩阵对象<strong>${manifest.expression_matrices.length}</strong></div>
+    <div class="metric">差异基因表<strong>${manifest.deg_sets.length}</strong></div>
+    <div class="metric">GO 图<strong>${manifest.go.length}</strong></div>
+    <div class="metric">GSEA 图<strong>${manifest.gsea.length}</strong></div>
+    <div class="metric">Venn 图<strong>${manifest.venn.length}</strong></div>`;
+}
+async function showResult() {
+  $("plotBox").innerHTML = "";
+  $("tableBox").classList.add("hidden");
+  $("links").innerHTML = "";
+  const method = methodSel.value;
+  let item = null;
+  if (method === "差异基因") {
+    item = manifest.deg_sets.find(x => x.name === geneSetSel.value);
+    $("meta").innerHTML = `<b>${item.name}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
+    $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    $("tableBox").classList.remove("hidden");
+    await renderTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.table_csv}" download>下载 CSV</a>`;
+  } else if (method === "GO") {
+    item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && x.sort === goSortSel.value && variantOf(x.gene_set) === variantSel.value);
+    $("plotBox").innerHTML = `<img src="${item.svg}" alt="GO plot">`;
+    $("meta").innerHTML = `<b>${item.gene_set}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+  } else if (method === "GSEA") {
+    item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
+    $("plotBox").innerHTML = `<img src="${item.svg}" alt="GSEA plot">`;
+    $("meta").innerHTML = `<b>${item.gene_set}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+  } else {
+    item = manifest.venn.find(x =>
+      (x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value) ||
+      (x.set1 === geneSet2Sel.value && x.set2 === geneSetSel.value)
+    );
+    if (!item) {
+      $("plotBox").innerHTML = "<div>请选择两个不同且已有预生成结果的基因集。</div>";
+      $("meta").innerHTML = "";
+      return;
+    }
+    $("plotBox").innerHTML = `<img src="${item.svg}" alt="Venn plot">`;
+    $("meta").innerHTML = `<b>${item.set1}</b> vs <b>${item.set2}</b><br>${item.set1}：${item.count1}<br>${item.set2}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+  }
+}
+fetch("assets/manifest.json").then(r => r.json()).then(data => {
+  manifest = data;
+  opt(methodSel, methods);
+  setSummary();
+  refreshControls();
+  showResult();
+});
+methodSel.addEventListener("change", () => { refreshControls(); showResult(); });
+geneSetSel.addEventListener("change", () => { if (methodSel.value === "GSEA") refreshBackgrounds(); showResult(); });
+geneSet2Sel.addEventListener("change", showResult);
+goSortSel.addEventListener("change", () => { refreshControls(); showResult(); });
+bgSel.addEventListener("change", showResult);
+variantSel.addEventListener("change", () => { refreshControls(); showResult(); });
+$("showBtn").addEventListener("click", showResult);
+</script>
+</body>
+</html>
