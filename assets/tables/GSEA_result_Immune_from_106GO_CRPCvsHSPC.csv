@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Immune_from_106GO","Immune_from_106GO",9,-0.368300771313252,-0.845953427193012,0.645505097312326,0.645505097312326,NA,2595,"tags=22%, list=14%, signal=19%","LAPTM5/TYROBP",9

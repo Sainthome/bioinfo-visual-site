@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Denervation_1_5x_up_Aver","Denervation_1_5x_up_Aver",106,0.325483075955283,1.08161905890582,0.280022059837309,0.280022059837309,NA,1797,"tags=19%, list=10%, signal=17%","MAOA/HSPB1/SREBF1/PDK3/EDNRB/VEGFA/INSIG1/KLK15/PHLDA1/EGFR/ZDHHC24/SGK1/CRYZ/ACSL1/CPAMD8/CFAP97/CAV3/COQ10B/VPS37B/TFRC",106

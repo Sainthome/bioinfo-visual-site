@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Denervation_1_5x_down_everyn","Denervation_1_5x_down_everyn",21,0.240068967367858,0.619755071403655,0.941263282172373,0.941263282172373,NA,2836,"tags=19%, list=16%, signal=16%","POLR2J/RPS6/RPL5/DRD4",21

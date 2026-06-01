@@ -22,6 +22,9 @@
     .result-grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     .plot-box { overflow:auto; min-height:420px; display:flex; align-items:center; justify-content:center; background:#fff; }
     .plot-box img { max-width:100%; height:auto; }
+    .plot-stack { display:flex; flex-direction:column; gap:14px; align-items:center; width:100%; }
+    .plot-stack img { max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:white; }
+    .subhead { font-size:15px; font-weight:700; margin:14px 0 8px; }
     .meta { font-size:14px; line-height:1.65; color:#2a3441; }
     .links { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
     .links a { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--blue); text-decoration:none; background:#fff; }
@@ -76,6 +79,7 @@ function opt(sel, values) {
     sel.appendChild(o);
   });
 }
+function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 function baseNameFromGo(item) { return item.gene_set.replace(/_(allDEGs|upDEGs|downDEGs)$/,"").replace(/(all|up|down)$/,""); }
 function variantOf(name) {
   if (/downDEGs$|down\d*$|_down$/i.test(name)) return "down";
@@ -86,6 +90,7 @@ function goBaseName(name) {
   return name
     .replace(/_1_5x_(allDEGs|upDEGs|downDEGs)$/i, "_1_5x")
     .replace(/_(allDEGs|upDEGs|downDEGs)$/i, "")
+    .replace(/_(all|up|down)$/i, "")
     .replace(/_1_5x(all|up|down)(\d+)?$/i, "_1_5x")
     .replace(/(all|up|down)(\d+)?$/i, "");
 }
@@ -96,19 +101,21 @@ function refreshControls() {
   $("geneSet2Wrap").classList.toggle("hidden", method !== "Venn");
   $("variantWrap").classList.toggle("hidden", method === "GSEA" || method === "Venn");
   if (method === "差异基因") {
-    opt(geneSetSel, manifest.deg_sets.map(x => x.name));
+    opt(geneSetSel, manifest.deg_sets.map(x => ({ value: x.name, label: x.display_name || displayName(x.name) })));
   } else if (method === "GO") {
     opt(goSortSel, [...new Set(manifest.go.map(x => x.sort))]);
     const sort = goSortSel.value || [...new Set(manifest.go.map(x => x.sort))][0];
     const variant = variantSel.value || "all";
     const filtered = manifest.go.filter(x => x.sort === sort && variantOf(x.gene_set) === variant);
-    opt(geneSetSel, [...new Set(filtered.map(x => goBaseName(x.gene_set)))]);
+    const seenGo = new Set();
+    opt(geneSetSel, filtered.filter(x => { const b = goBaseName(x.gene_set); if (seenGo.has(b)) return false; seenGo.add(b); return true; }).map(x => ({ value: goBaseName(x.gene_set), label: displayName(goBaseName(x.gene_set)) })));
   } else if (method === "GSEA") {
-    opt(geneSetSel, [...new Set(manifest.gsea.map(x => x.gene_set))]);
+    const seen = new Set();
+    opt(geneSetSel, manifest.gsea.filter(x => { if (seen.has(x.gene_set)) return false; seen.add(x.gene_set); return true; }).map(x => ({ value: x.gene_set, label: x.display_name || displayName(x.gene_set) })));
     refreshBackgrounds();
   } else {
-    opt(geneSetSel, manifest.venn_sets.map(x => x.name));
-    opt(geneSet2Sel, manifest.venn_sets.map(x => x.name));
+    opt(geneSetSel, manifest.venn_sets.map(x => ({ value: x.name, label: displayName(x.name) })));
+    opt(geneSet2Sel, manifest.venn_sets.map(x => ({ value: x.name, label: displayName(x.name) })));
     if (geneSet2Sel.selectedIndex === geneSetSel.selectedIndex && geneSet2Sel.options.length > 1) {
       geneSet2Sel.selectedIndex = 1;
     }
@@ -135,9 +142,15 @@ async function loadCsv(path) {
   return {head, rows};
 }
 async function renderTable(path) {
+  if (!path) { $("tableBox").classList.add("hidden"); $("tableBox").innerHTML = ""; return; }
   const {head, rows} = await loadCsv(path);
   const shown = rows.slice(0, 300);
   $("tableBox").innerHTML = `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${shown.map(r=>`<tr>${head.map((_,i)=>`<td>${r[i] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+async function showTable(path) {
+  if (!path) return;
+  $("tableBox").classList.remove("hidden");
+  await renderTable(path);
 }
 function setSummary() {
   $("summary").innerHTML = `
@@ -155,21 +168,28 @@ async function showResult() {
   let item = null;
   if (method === "差异基因") {
     item = manifest.deg_sets.find(x => x.name === geneSetSel.value);
-    $("meta").innerHTML = `<b>${item.name}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
-    $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    const heatmaps = (manifest.heatmaps || []).filter(x => x.gene_set === item.name);
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.name)}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
+    if (heatmaps.length) {
+      $("plotBox").innerHTML = `<div class="plot-stack">${heatmaps.map(h => `<div style="width:100%"><div class="subhead">${displayName(h.display_name)} ${h.sheet}</div><img src="${h.svg}" alt="heatmap"></div>`).join("")}</div>`;
+    } else {
+      $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    }
     $("tableBox").classList.remove("hidden");
     await renderTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.table_csv}" download>下载 CSV</a>`;
+    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${h.pdf}" download>下载热图 PDF</a>`).join("")}`;
   } else if (method === "GO") {
     item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && x.sort === goSortSel.value && variantOf(x.gene_set) === variantSel.value);
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="GO plot">`;
-    $("meta").innerHTML = `<b>${item.gene_set}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
   } else if (method === "GSEA") {
     item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="GSEA plot">`;
-    $("meta").innerHTML = `<b>${item.gene_set}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
   } else {
     item = manifest.venn.find(x =>
       (x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value) ||
@@ -181,12 +201,12 @@ async function showResult() {
       return;
     }
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="Venn plot">`;
-    $("meta").innerHTML = `<b>${item.set1}</b> vs <b>${item.set2}</b><br>${item.set1}：${item.count1}<br>${item.set2}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
+    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
   }
 }
 manifest = {
-  "generated_at": "2026-06-01 02:03:50",
+  "generated_at": "2026-06-01 20:15:11",
   "expression_matrices": [
     {
       "object": "crpc_expr2443",
@@ -274,9 +294,10 @@ manifest = {
     {
       "id": "Denervation_Aver_1.5x",
       "name": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_Aver_1.5x",
       "all_count": 149,
-      "up_count": 0,
-      "down_count": 0,
+      "up_count": 111,
+      "down_count": 38,
       "table_csv": "assets/tables/DEG_Denervation_Aver_1_5x.csv",
       "source_file": "DEGs_result.xlsx",
       "columns": ["Gene", "Botox_Aver", "MPG_Aver", "...4", "...5", "...6"]
@@ -284,16 +305,29 @@ manifest = {
     {
       "id": "Denervation_everyn_1.5x",
       "name": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_everyn_1.5x",
       "all_count": 98,
-      "up_count": 0,
-      "down_count": 0,
+      "up_count": 76,
+      "down_count": 22,
       "table_csv": "assets/tables/DEG_Denervation_everyn_1_5x.csv",
       "source_file": "DEGs_result.xlsx",
       "columns": ["Gene", "18034_Epith_Botox8p", "18037_Epith_Botox2p", "18034_Epith_MPG1p", "18037_Epith_MPG4p", "18037_Epith_MPG5p", "...7", "...8", "...9"]
     },
     {
+      "id": "BB3",
+      "name": "BB3",
+      "display_name": "B3R-R",
+      "all_count": 543,
+      "up_count": 257,
+      "down_count": 286,
+      "table_csv": "assets/tables/DEG_BB3.csv",
+      "source_file": "DEGs_result.xlsx",
+      "columns": ["gene", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj", "...8"]
+    },
+    {
       "id": "BB3_1.5x",
       "name": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
       "all_count": 175,
       "up_count": 100,
       "down_count": 75,
@@ -304,6 +338,7 @@ manifest = {
     {
       "id": "CRPCvsHSPC_1.5x",
       "name": "CRPCvsHSPC_1.5x",
+      "display_name": "CRPCvsHSPC_1.5x",
       "all_count": 22,
       "up_count": 21,
       "down_count": 1,
@@ -314,6 +349,7 @@ manifest = {
     {
       "id": "CRPCvsHSPC",
       "name": "CRPCvsHSPC",
+      "display_name": "CRPCvsHSPC",
       "all_count": 60,
       "up_count": 35,
       "down_count": 25,
@@ -324,6 +360,7 @@ manifest = {
     {
       "id": "CRPCvsHSPCcouple_1.5x",
       "name": "CRPCvsHSPCcouple_1.5x",
+      "display_name": "CRPCvsHSPCcouple_1.5x",
       "all_count": 117,
       "up_count": 100,
       "down_count": 17,
@@ -334,6 +371,7 @@ manifest = {
     {
       "id": "CRPCvsNormal_1.5x",
       "name": "CRPCvsNormal_1.5x",
+      "display_name": "CRPCvsNormal_1.5x",
       "all_count": 2648,
       "up_count": 1237,
       "down_count": 1411,
@@ -344,6 +382,7 @@ manifest = {
     {
       "id": "HSPCcouplevsNormal_1.5x",
       "name": "HSPCcouplevsNormal_1.5x",
+      "display_name": "HSPCcouplevsNormal_1.5x",
       "all_count": 2200,
       "up_count": 875,
       "down_count": 1325,
@@ -356,514 +395,653 @@ manifest = {
     {
       "id": "按FoldEnrichment排列__BB3_1_5xall",
       "gene_set": "BB3_1_5xall",
+      "display_name": "B3R-R_1_5xall",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_BB3_1.5xall.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xall.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xall.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_BB3_1_5xall.csv",
       "terms": 149
     },
     {
       "id": "按FoldEnrichment排列__BB3_1_5xdown",
       "gene_set": "BB3_1_5xdown",
+      "display_name": "B3R-R_1_5xdown",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_BB3_1.5xdown.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xdown.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xdown.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_BB3_1_5xdown.csv",
       "terms": 145
     },
     {
       "id": "按FoldEnrichment排列__BB3_1_5xdown67",
       "gene_set": "BB3_1_5xdown67",
+      "display_name": "B3R-R_1_5xdown67",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_BB3_1.5xdown67.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xdown67.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xdown67.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_BB3_1_5xdown67.csv",
       "terms": 138
     },
     {
       "id": "按FoldEnrichment排列__BB3_1_5xup",
       "gene_set": "BB3_1_5xup",
+      "display_name": "B3R-R_1_5xup",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_BB3_1.5xup.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xup.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xup.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_BB3_1_5xup.csv",
       "terms": 162
     },
     {
       "id": "按FoldEnrichment排列__BB3_1_5xup87",
       "gene_set": "BB3_1_5xup87",
+      "display_name": "B3R-R_1_5xup87",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_BB3_1.5xup87.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xup87.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_BB3_1_5xup87.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_BB3_1_5xup87.csv",
       "terms": 159
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPC_1_5x_allDEGs",
       "gene_set": "CRPC_vs_HSPC_1_5x_allDEGs",
+      "display_name": "CRPC_vs_HSPC_1_5x_allDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPC_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_allDEGs.csv",
       "terms": 168
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPC_1_5x_upDEGs",
       "gene_set": "CRPC_vs_HSPC_1_5x_upDEGs",
+      "display_name": "CRPC_vs_HSPC_1_5x_upDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPC_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPC_1_5x_upDEGs.csv",
       "terms": 168
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPC_allDEGs",
       "gene_set": "CRPC_vs_HSPC_allDEGs",
+      "display_name": "CRPC_vs_HSPC_allDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPC_allDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_allDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPC_allDEGs.csv",
       "terms": 58
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPC_downDEGs",
       "gene_set": "CRPC_vs_HSPC_downDEGs",
+      "display_name": "CRPC_vs_HSPC_downDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPC_downDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_downDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPC_downDEGs.csv",
       "terms": 98
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPC_upDEGs",
       "gene_set": "CRPC_vs_HSPC_upDEGs",
+      "display_name": "CRPC_vs_HSPC_upDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPC_upDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_upDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPC_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPC_upDEGs.csv",
       "terms": 145
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPCcouple_1_5x_allDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_allDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_allDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPCcouple_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.csv",
       "terms": 191
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPCcouple_1_5x_downDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_downDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_downDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPCcouple_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.csv",
       "terms": 224
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_HSPCcouple_1_5x_upDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_upDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_upDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_HSPCcouple_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.csv",
       "terms": 208
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_Normal_1_5x_allDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_allDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_allDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_Normal_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_allDEGs.csv",
       "terms": 326
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_Normal_1_5x_downDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_downDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_downDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_Normal_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_downDEGs.csv",
       "terms": 467
     },
     {
       "id": "按FoldEnrichment排列__CRPC_vs_Normal_1_5x_upDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_upDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_upDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_CRPC_vs_Normal_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_CRPC_vs_Normal_1_5x_upDEGs.csv",
       "terms": 111
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xall_Aver",
       "gene_set": "Denervation_1_5xall_Aver",
+      "display_name": "PR-DV_1_5xall_Aver",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xall_Aver.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xall_Aver.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xall_Aver.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xall_Aver.csv",
       "terms": 511
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xall_everyn",
       "gene_set": "Denervation_1_5xall_everyn",
+      "display_name": "PR-DV_1_5xall_everyn",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xall_everyn.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xall_everyn.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xall_everyn.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xall_everyn.csv",
       "terms": 513
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xup_Aver",
       "gene_set": "Denervation_1_5xup_Aver",
+      "display_name": "PR-DV_1_5xup_Aver",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xup_Aver.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_Aver.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_Aver.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xup_Aver.csv",
       "terms": 472
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xup_Aver_106",
       "gene_set": "Denervation_1_5xup_Aver_106",
+      "display_name": "PR-DV_1_5xup_Aver_106",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xup_Aver_106.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_Aver_106.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_Aver_106.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xup_Aver_106.csv",
       "terms": 542
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xup_everyn",
       "gene_set": "Denervation_1_5xup_everyn",
+      "display_name": "PR-DV_1_5xup_everyn",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xup_everyn.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_everyn.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_everyn.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xup_everyn.csv",
       "terms": 453
     },
     {
       "id": "按FoldEnrichment排列__Denervation_1_5xup_everyn_72",
       "gene_set": "Denervation_1_5xup_everyn_72",
+      "display_name": "PR-DV_1_5xup_everyn_72",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_Denervation_1.5xup_everyn_72.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_everyn_72.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_Denervation_1_5xup_everyn_72.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_Denervation_1_5xup_everyn_72.csv",
       "terms": 516
     },
     {
       "id": "按FoldEnrichment排列__HSPC_vs_Normal_1_5x_allDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_allDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_allDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_HSPC_vs_Normal_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_allDEGs.csv",
       "terms": 373
     },
     {
       "id": "按FoldEnrichment排列__HSPC_vs_Normal_1_5x_downDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_downDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_downDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_HSPC_vs_Normal_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_downDEGs.csv",
       "terms": 423
     },
     {
       "id": "按FoldEnrichment排列__HSPC_vs_Normal_1_5x_upDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_upDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_upDEGs",
       "method": "GO",
       "sort": "按FoldEnrichment排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按foldenrichment排列/GO_results_HSPC_vs_Normal_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按FoldEnrichment排列_HSPC_vs_Normal_1_5x_upDEGs.csv",
       "terms": 228
     },
     {
       "id": "按GeneRatio排列__BB3_1_5xall",
       "gene_set": "BB3_1_5xall",
+      "display_name": "B3R-R_1_5xall",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_BB3_1.5xall.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_BB3_1_5xall.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_BB3_1_5xall.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_BB3_1_5xall.csv",
       "terms": 149
     },
     {
       "id": "按GeneRatio排列__BB3_1_5xdown",
       "gene_set": "BB3_1_5xdown",
+      "display_name": "B3R-R_1_5xdown",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_BB3_1.5xdown.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_BB3_1_5xdown.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_BB3_1_5xdown.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_BB3_1_5xdown.csv",
       "terms": 145
     },
     {
       "id": "按GeneRatio排列__BB3_1_5xdown67",
       "gene_set": "BB3_1_5xdown67",
+      "display_name": "B3R-R_1_5xdown67",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_BB3_1.5xdown67.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_BB3_1_5xdown67.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_BB3_1_5xdown67.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_BB3_1_5xdown67.csv",
       "terms": 138
     },
     {
       "id": "按GeneRatio排列__BB3_1_5xup",
       "gene_set": "BB3_1_5xup",
+      "display_name": "B3R-R_1_5xup",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_BB3_1.5xup.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_BB3_1_5xup.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_BB3_1_5xup.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_BB3_1_5xup.csv",
       "terms": 162
     },
     {
       "id": "按GeneRatio排列__BB3_1_5xup87",
       "gene_set": "BB3_1_5xup87",
+      "display_name": "B3R-R_1_5xup87",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_BB3_1.5xup87.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_BB3_1_5xup87.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_BB3_1_5xup87.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_BB3_1_5xup87.csv",
       "terms": 159
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPC_1_5x_allDEGs",
       "gene_set": "CRPC_vs_HSPC_1_5x_allDEGs",
+      "display_name": "CRPC_vs_HSPC_1_5x_allDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPC_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPC_1_5x_allDEGs.csv",
       "terms": 168
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPC_1_5x_upDEGs",
       "gene_set": "CRPC_vs_HSPC_1_5x_upDEGs",
+      "display_name": "CRPC_vs_HSPC_1_5x_upDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPC_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPC_1_5x_upDEGs.csv",
       "terms": 168
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPC_allDEGs",
       "gene_set": "CRPC_vs_HSPC_allDEGs",
+      "display_name": "CRPC_vs_HSPC_allDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPC_allDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_allDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPC_allDEGs.csv",
       "terms": 58
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPC_downDEGs",
       "gene_set": "CRPC_vs_HSPC_downDEGs",
+      "display_name": "CRPC_vs_HSPC_downDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPC_downDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_downDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPC_downDEGs.csv",
       "terms": 98
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPC_upDEGs",
       "gene_set": "CRPC_vs_HSPC_upDEGs",
+      "display_name": "CRPC_vs_HSPC_upDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPC_upDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_upDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPC_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPC_upDEGs.csv",
       "terms": 145
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPCcouple_1_5x_allDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_allDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_allDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPCcouple_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_allDEGs.csv",
       "terms": 191
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPCcouple_1_5x_downDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_downDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_downDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPCcouple_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_downDEGs.csv",
       "terms": 224
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_HSPCcouple_1_5x_upDEGs",
       "gene_set": "CRPC_vs_HSPCcouple_1_5x_upDEGs",
+      "display_name": "CRPC_vs_HSPCcouple_1_5x_upDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_HSPCcouple_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_HSPCcouple_1_5x_upDEGs.csv",
       "terms": 208
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_Normal_1_5x_allDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_allDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_allDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_Normal_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_Normal_1_5x_allDEGs.csv",
       "terms": 326
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_Normal_1_5x_downDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_downDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_downDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_Normal_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_Normal_1_5x_downDEGs.csv",
       "terms": 467
     },
     {
       "id": "按GeneRatio排列__CRPC_vs_Normal_1_5x_upDEGs",
       "gene_set": "CRPC_vs_Normal_1_5x_upDEGs",
+      "display_name": "CRPC_vs_Normal_1_5x_upDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_CRPC_vs_Normal_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_CRPC_vs_Normal_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_CRPC_vs_Normal_1_5x_upDEGs.csv",
       "terms": 111
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xall_Aver",
       "gene_set": "Denervation_1_5xall_Aver",
+      "display_name": "PR-DV_1_5xall_Aver",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xall_Aver.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xall_Aver.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xall_Aver.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xall_Aver.csv",
       "terms": 511
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xall_everyn",
       "gene_set": "Denervation_1_5xall_everyn",
+      "display_name": "PR-DV_1_5xall_everyn",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xall_everyn.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xall_everyn.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xall_everyn.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xall_everyn.csv",
       "terms": 513
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xup_Aver",
       "gene_set": "Denervation_1_5xup_Aver",
+      "display_name": "PR-DV_1_5xup_Aver",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xup_Aver.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_Aver.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_Aver.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xup_Aver.csv",
       "terms": 472
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xup_Aver_106",
       "gene_set": "Denervation_1_5xup_Aver_106",
+      "display_name": "PR-DV_1_5xup_Aver_106",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xup_Aver_106.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_Aver_106.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_Aver_106.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xup_Aver_106.csv",
       "terms": 542
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xup_everyn",
       "gene_set": "Denervation_1_5xup_everyn",
+      "display_name": "PR-DV_1_5xup_everyn",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xup_everyn.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_everyn.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_everyn.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xup_everyn.csv",
       "terms": 453
     },
     {
       "id": "按GeneRatio排列__Denervation_1_5xup_everyn_72",
       "gene_set": "Denervation_1_5xup_everyn_72",
+      "display_name": "PR-DV_1_5xup_everyn_72",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_Denervation_1.5xup_everyn_72.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_everyn_72.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_Denervation_1_5xup_everyn_72.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_Denervation_1_5xup_everyn_72.csv",
       "terms": 516
     },
     {
       "id": "按GeneRatio排列__HSPC_vs_Normal_1_5x_allDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_allDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_allDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_HSPC_vs_Normal_1.5x_allDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_allDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_allDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_HSPC_vs_Normal_1_5x_allDEGs.csv",
       "terms": 373
     },
     {
       "id": "按GeneRatio排列__HSPC_vs_Normal_1_5x_downDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_downDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_downDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_HSPC_vs_Normal_1.5x_downDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_downDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_downDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_HSPC_vs_Normal_1_5x_downDEGs.csv",
       "terms": 423
     },
     {
       "id": "按GeneRatio排列__HSPC_vs_Normal_1_5x_upDEGs",
       "gene_set": "HSPC_vs_Normal_1_5x_upDEGs",
+      "display_name": "HSPC_vs_Normal_1_5x_upDEGs",
       "method": "GO",
       "sort": "按GeneRatio排列",
       "source_file": "E:/生信2026.4/新队列/新队列全自动网站/GO_按generatio排列/GO_results_HSPC_vs_Normal_1.5x_upDEGs.xlsx",
       "svg": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_upDEGs.svg",
       "pdf": "assets/plots/GO_按GeneRatio排列_HSPC_vs_Normal_1_5x_upDEGs.pdf",
+      "table_csv": "assets/tables/GO_table_按GeneRatio排列_HSPC_vs_Normal_1_5x_upDEGs.csv",
       "terms": 228
+    },
+    {
+      "id": "enrichGO__BB3_all",
+      "gene_set": "BB3_all",
+      "display_name": "B3R-R_all",
+      "method": "GO",
+      "sort": "enrichGO",
+      "source_file": "DEGs_result.xlsx",
+      "svg": "assets/plots/GO_enrichGO_BB3_all.svg",
+      "pdf": "assets/plots/GO_enrichGO_BB3_all.pdf",
+      "table_csv": "assets/tables/GO_table_BB3_all.csv",
+      "terms": 5286
+    },
+    {
+      "id": "enrichGO__BB3_up",
+      "gene_set": "BB3_up",
+      "display_name": "B3R-R_up",
+      "method": "GO",
+      "sort": "enrichGO",
+      "source_file": "DEGs_result.xlsx",
+      "svg": "assets/plots/GO_enrichGO_BB3_up.svg",
+      "pdf": "assets/plots/GO_enrichGO_BB3_up.pdf",
+      "table_csv": "assets/tables/GO_table_BB3_up.csv",
+      "terms": 3165
+    },
+    {
+      "id": "enrichGO__BB3_down",
+      "gene_set": "BB3_down",
+      "display_name": "B3R-R_down",
+      "method": "GO",
+      "sort": "enrichGO",
+      "source_file": "DEGs_result.xlsx",
+      "svg": "assets/plots/GO_enrichGO_BB3_down.svg",
+      "pdf": "assets/plots/GO_enrichGO_BB3_down.pdf",
+      "table_csv": "assets/tables/GO_table_BB3_down.csv",
+      "terms": 4139
     }
   ],
   "gsea": [
     {
       "id": "BB3_1_5x_down__CRPCvsHSPC",
       "gene_set": "BB3_1_5x_down",
+      "display_name": "B3R-R_1_5x_down",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_down_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_down_CRPCvsHSPC.csv",
       "rows": 67,
       "nes": 1.3859,
       "fdr": 0.1014
@@ -871,12 +1049,15 @@ manifest = {
     {
       "id": "BB3_1_5x_down__CRPCvsHSPCcouple",
       "gene_set": "BB3_1_5x_down",
+      "display_name": "B3R-R_1_5x_down",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_down_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_down_CRPCvsHSPCcouple.csv",
       "rows": 67,
       "nes": -2.1995,
       "fdr": 1.1821e-06
@@ -884,12 +1065,15 @@ manifest = {
     {
       "id": "BB3_1_5x_down__CRPCvsNormal",
       "gene_set": "BB3_1_5x_down",
+      "display_name": "B3R-R_1_5x_down",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_down_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_down_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_down_CRPCvsNormal.csv",
       "rows": 67,
       "nes": 1.0873,
       "fdr": 0.2883
@@ -897,12 +1081,15 @@ manifest = {
     {
       "id": "BB3_1_5x_down__HSPCcouplevsNormal",
       "gene_set": "BB3_1_5x_down",
+      "display_name": "B3R-R_1_5x_down",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_down_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_down_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_down_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_down_HSPCcouplevsNormal.csv",
       "rows": 67,
       "nes": 1.6499,
       "fdr": 0.0017
@@ -910,12 +1097,15 @@ manifest = {
     {
       "id": "BB3_1_5x_up__CRPCvsHSPC",
       "gene_set": "BB3_1_5x_up",
+      "display_name": "B3R-R_1_5x_up",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_up_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_up_CRPCvsHSPC.csv",
       "rows": 87,
       "nes": -1.38,
       "fdr": 0.0421
@@ -923,12 +1113,15 @@ manifest = {
     {
       "id": "BB3_1_5x_up__CRPCvsHSPCcouple",
       "gene_set": "BB3_1_5x_up",
+      "display_name": "B3R-R_1_5x_up",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_up_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_up_CRPCvsHSPCcouple.csv",
       "rows": 87,
       "nes": 2.1992,
       "fdr": 5.5584e-07
@@ -936,12 +1129,15 @@ manifest = {
     {
       "id": "BB3_1_5x_up__CRPCvsNormal",
       "gene_set": "BB3_1_5x_up",
+      "display_name": "B3R-R_1_5x_up",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_up_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_up_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_up_CRPCvsNormal.csv",
       "rows": 87,
       "nes": 1.017,
       "fdr": 0.4083
@@ -949,12 +1145,15 @@ manifest = {
     {
       "id": "BB3_1_5x_up__HSPCcouplevsNormal",
       "gene_set": "BB3_1_5x_up",
+      "display_name": "B3R-R_1_5x_up",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_BB3_1_5x_up_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_BB3_1_5x_up_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_1_5x_up_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_1_5x_up_HSPCcouplevsNormal.csv",
       "rows": 87,
       "nes": -1.4203,
       "fdr": 0.0229
@@ -962,12 +1161,15 @@ manifest = {
     {
       "id": "Hallmark_OXIDATIVE_PHOSPHORYLATION__CRPCvsHSPC",
       "gene_set": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
+      "display_name": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPC.csv",
       "rows": 183,
       "nes": 1.8723,
       "fdr": 0.0047
@@ -975,12 +1177,15 @@ manifest = {
     {
       "id": "Hallmark_OXIDATIVE_PHOSPHORYLATION__CRPCvsHSPCcouple",
       "gene_set": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
+      "display_name": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsHSPCcouple.csv",
       "rows": 183,
       "nes": 2.5297,
       "fdr": 3.4853e-18
@@ -988,12 +1193,15 @@ manifest = {
     {
       "id": "Hallmark_OXIDATIVE_PHOSPHORYLATION__CRPCvsNormal",
       "gene_set": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
+      "display_name": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Hallmark_OXIDATIVE_PHOSPHORYLATION_CRPCvsNormal.csv",
       "rows": 183,
       "nes": 1.7842,
       "fdr": 0
@@ -1001,12 +1209,15 @@ manifest = {
     {
       "id": "Hallmark_OXIDATIVE_PHOSPHORYLATION__HSPCcouplevsNormal",
       "gene_set": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
+      "display_name": "Hallmark_OXIDATIVE_PHOSPHORYLATION",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Hallmark_OXIDATIVE_PHOSPHORYLATION_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Hallmark_OXIDATIVE_PHOSPHORYLATION_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Hallmark_OXIDATIVE_PHOSPHORYLATION_HSPCcouplevsNormal.csv",
       "rows": 183,
       "nes": -1.0458,
       "fdr": 0.3527
@@ -1014,12 +1225,15 @@ manifest = {
     {
       "id": "Oxidation_from_87GO__CRPCvsHSPC",
       "gene_set": "Oxidation_from_87GO",
+      "display_name": "Oxidation_from_87GO",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Oxidation_from_87GO_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Oxidation_from_87GO_CRPCvsHSPC.csv",
       "rows": 9,
       "nes": 0.7317,
       "fdr": 0.7918
@@ -1027,12 +1241,15 @@ manifest = {
     {
       "id": "Oxidation_from_87GO__CRPCvsHSPCcouple",
       "gene_set": "Oxidation_from_87GO",
+      "display_name": "Oxidation_from_87GO",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Oxidation_from_87GO_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Oxidation_from_87GO_CRPCvsHSPCcouple.csv",
       "rows": 9,
       "nes": 2.0004,
       "fdr": 0
@@ -1040,12 +1257,15 @@ manifest = {
     {
       "id": "Oxidation_from_87GO__CRPCvsNormal",
       "gene_set": "Oxidation_from_87GO",
+      "display_name": "Oxidation_from_87GO",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Oxidation_from_87GO_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Oxidation_from_87GO_CRPCvsNormal.csv",
       "rows": 9,
       "nes": 1.5325,
       "fdr": 0.0375
@@ -1053,12 +1273,15 @@ manifest = {
     {
       "id": "Oxidation_from_87GO__HSPCcouplevsNormal",
       "gene_set": "Oxidation_from_87GO",
+      "display_name": "Oxidation_from_87GO",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Oxidation_from_87GO_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Oxidation_from_87GO_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Oxidation_from_87GO_HSPCcouplevsNormal.csv",
       "rows": 9,
       "nes": -1.1662,
       "fdr": 0.297
@@ -1066,12 +1289,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_Aver__CRPCvsHSPC",
       "gene_set": "Denervation_1_5x_down_Aver",
+      "display_name": "PR-DV_1_5x_down_Aver",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_Aver_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_Aver_CRPCvsHSPC.csv",
       "rows": 37,
       "nes": 0.8947,
       "fdr": 0.5702
@@ -1079,12 +1305,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_Aver__CRPCvsHSPCcouple",
       "gene_set": "Denervation_1_5x_down_Aver",
+      "display_name": "PR-DV_1_5x_down_Aver",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_Aver_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_Aver_CRPCvsHSPCcouple.csv",
       "rows": 37,
       "nes": 0.9874,
       "fdr": 0.4633
@@ -1092,12 +1321,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_Aver__CRPCvsNormal",
       "gene_set": "Denervation_1_5x_down_Aver",
+      "display_name": "PR-DV_1_5x_down_Aver",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_Aver_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_Aver_CRPCvsNormal.csv",
       "rows": 37,
       "nes": -1.1046,
       "fdr": 0.2928
@@ -1105,12 +1337,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_Aver__HSPCcouplevsNormal",
       "gene_set": "Denervation_1_5x_down_Aver",
+      "display_name": "PR-DV_1_5x_down_Aver",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_Aver_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_Aver_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_Aver_HSPCcouplevsNormal.csv",
       "rows": 37,
       "nes": -1.104,
       "fdr": 0.3056
@@ -1118,12 +1353,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_everyn__CRPCvsHSPC",
       "gene_set": "Denervation_1_5x_down_everyn",
+      "display_name": "PR-DV_1_5x_down_everyn",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_everyn_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_everyn_CRPCvsHSPC.csv",
       "rows": 21,
       "nes": -0.6709,
       "fdr": 0.9231
@@ -1131,12 +1369,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_everyn__CRPCvsHSPCcouple",
       "gene_set": "Denervation_1_5x_down_everyn",
+      "display_name": "PR-DV_1_5x_down_everyn",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_everyn_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_everyn_CRPCvsHSPCcouple.csv",
       "rows": 21,
       "nes": 0.6198,
       "fdr": 0.9413
@@ -1144,12 +1385,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_everyn__CRPCvsNormal",
       "gene_set": "Denervation_1_5x_down_everyn",
+      "display_name": "PR-DV_1_5x_down_everyn",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_everyn_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_everyn_CRPCvsNormal.csv",
       "rows": 21,
       "nes": -1.3139,
       "fdr": 0.1246
@@ -1157,12 +1401,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_down_everyn__HSPCcouplevsNormal",
       "gene_set": "Denervation_1_5x_down_everyn",
+      "display_name": "PR-DV_1_5x_down_everyn",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_down_everyn_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_down_everyn_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_down_everyn_HSPCcouplevsNormal.csv",
       "rows": 21,
       "nes": -1.2179,
       "fdr": 0.2127
@@ -1170,12 +1417,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_Aver__CRPCvsHSPC",
       "gene_set": "Denervation_1_5x_up_Aver",
+      "display_name": "PR-DV_1_5x_up_Aver",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_Aver_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_Aver_CRPCvsHSPC.csv",
       "rows": 106,
       "nes": 1.0816,
       "fdr": 0.28
@@ -1183,12 +1433,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_Aver__CRPCvsHSPCcouple",
       "gene_set": "Denervation_1_5x_up_Aver",
+      "display_name": "PR-DV_1_5x_up_Aver",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_Aver_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_Aver_CRPCvsHSPCcouple.csv",
       "rows": 106,
       "nes": -0.9358,
       "fdr": 0.6237
@@ -1196,12 +1449,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_Aver__CRPCvsNormal",
       "gene_set": "Denervation_1_5x_up_Aver",
+      "display_name": "PR-DV_1_5x_up_Aver",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_Aver_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_Aver_CRPCvsNormal.csv",
       "rows": 106,
       "nes": -0.9783,
       "fdr": 0.4972
@@ -1209,12 +1465,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_Aver__HSPCcouplevsNormal",
       "gene_set": "Denervation_1_5x_up_Aver",
+      "display_name": "PR-DV_1_5x_up_Aver",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_Aver_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_Aver_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_Aver_HSPCcouplevsNormal.csv",
       "rows": 106,
       "nes": -1.0637,
       "fdr": 0.3327
@@ -1222,12 +1481,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_everyn__CRPCvsHSPC",
       "gene_set": "Denervation_1_5x_up_everyn",
+      "display_name": "PR-DV_1_5x_up_everyn",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_everyn_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_everyn_CRPCvsHSPC.csv",
       "rows": 72,
       "nes": 1.025,
       "fdr": 0.3561
@@ -1235,12 +1497,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_everyn__CRPCvsHSPCcouple",
       "gene_set": "Denervation_1_5x_up_everyn",
+      "display_name": "PR-DV_1_5x_up_everyn",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_everyn_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_everyn_CRPCvsHSPCcouple.csv",
       "rows": 72,
       "nes": 0.7104,
       "fdr": 0.9216
@@ -1248,12 +1513,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_everyn__CRPCvsNormal",
       "gene_set": "Denervation_1_5x_up_everyn",
+      "display_name": "PR-DV_1_5x_up_everyn",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_everyn_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_everyn_CRPCvsNormal.csv",
       "rows": 72,
       "nes": -1.0219,
       "fdr": 0.4033
@@ -1261,12 +1529,15 @@ manifest = {
     {
       "id": "Denervation_1_5x_up_everyn__HSPCcouplevsNormal",
       "gene_set": "Denervation_1_5x_up_everyn",
+      "display_name": "PR-DV_1_5x_up_everyn",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Denervation_1_5x_up_everyn_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Denervation_1_5x_up_everyn_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Denervation_1_5x_up_everyn_HSPCcouplevsNormal.csv",
       "rows": 72,
       "nes": -1.0979,
       "fdr": 0.2911
@@ -1274,12 +1545,15 @@ manifest = {
     {
       "id": "Immune_from_106GO__CRPCvsHSPC",
       "gene_set": "Immune_from_106GO",
+      "display_name": "Immune_from_106GO",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_106GO_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_106GO_CRPCvsHSPC.csv",
       "rows": 9,
       "nes": -0.846,
       "fdr": 0.6455
@@ -1287,12 +1561,15 @@ manifest = {
     {
       "id": "Immune_from_106GO__CRPCvsHSPCcouple",
       "gene_set": "Immune_from_106GO",
+      "display_name": "Immune_from_106GO",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_106GO_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_106GO_CRPCvsHSPCcouple.csv",
       "rows": 9,
       "nes": 1.2515,
       "fdr": 0.2066
@@ -1300,12 +1577,15 @@ manifest = {
     {
       "id": "Immune_from_106GO__CRPCvsNormal",
       "gene_set": "Immune_from_106GO",
+      "display_name": "Immune_from_106GO",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_106GO_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_106GO_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_106GO_CRPCvsNormal.csv",
       "rows": 9,
       "nes": -0.7288,
       "fdr": 0.8089
@@ -1313,12 +1593,15 @@ manifest = {
     {
       "id": "Immune_from_106GO__HSPCcouplevsNormal",
       "gene_set": "Immune_from_106GO",
+      "display_name": "Immune_from_106GO",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_106GO_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_106GO_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_106GO_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_106GO_HSPCcouplevsNormal.csv",
       "rows": 9,
       "nes": -1.0983,
       "fdr": 0.3683
@@ -1326,12 +1609,15 @@ manifest = {
     {
       "id": "Immune_from_111GO__CRPCvsHSPC",
       "gene_set": "Immune_from_111GO",
+      "display_name": "Immune_from_111GO",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_111GO_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_111GO_CRPCvsHSPC.csv",
       "rows": 9,
       "nes": -0.846,
       "fdr": 0.6455
@@ -1339,12 +1625,15 @@ manifest = {
     {
       "id": "Immune_from_111GO__CRPCvsHSPCcouple",
       "gene_set": "Immune_from_111GO",
+      "display_name": "Immune_from_111GO",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_111GO_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_111GO_CRPCvsHSPCcouple.csv",
       "rows": 9,
       "nes": 1.2515,
       "fdr": 0.2066
@@ -1352,12 +1641,15 @@ manifest = {
     {
       "id": "Immune_from_111GO__CRPCvsNormal",
       "gene_set": "Immune_from_111GO",
+      "display_name": "Immune_from_111GO",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_111GO_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_111GO_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_111GO_CRPCvsNormal.csv",
       "rows": 9,
       "nes": -0.7288,
       "fdr": 0.8089
@@ -1365,12 +1657,15 @@ manifest = {
     {
       "id": "Immune_from_111GO__HSPCcouplevsNormal",
       "gene_set": "Immune_from_111GO",
+      "display_name": "Immune_from_111GO",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_111GO_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_111GO_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_111GO_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_111GO_HSPCcouplevsNormal.csv",
       "rows": 9,
       "nes": -1.0983,
       "fdr": 0.3683
@@ -1378,12 +1673,15 @@ manifest = {
     {
       "id": "Immune_from_76GO新队列__CRPCvsHSPC",
       "gene_set": "Immune_from_76GO新队列",
+      "display_name": "Immune_from_76GO新队列",
       "background": "CRPCvsHSPC",
       "background_label": "CRPC vs HSPC",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsHSPC.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_76GO新队列_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_76GO新队列_CRPCvsHSPC.csv",
       "rows": 12,
       "nes": -0.8213,
       "fdr": 0.6913
@@ -1391,12 +1689,15 @@ manifest = {
     {
       "id": "Immune_from_76GO新队列__CRPCvsHSPCcouple",
       "gene_set": "Immune_from_76GO新队列",
+      "display_name": "Immune_from_76GO新队列",
       "background": "CRPCvsHSPCcouple",
       "background_label": "CRPC vs HSPC couple",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsHSPCcouple.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_76GO新队列_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_76GO新队列_CRPCvsHSPCcouple.csv",
       "rows": 12,
       "nes": 0.8319,
       "fdr": 0.6873
@@ -1404,12 +1705,15 @@ manifest = {
     {
       "id": "Immune_from_76GO新队列__CRPCvsNormal",
       "gene_set": "Immune_from_76GO新队列",
+      "display_name": "Immune_from_76GO新队列",
       "background": "CRPCvsNormal",
       "background_label": "CRPC vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_76GO新队列_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_76GO新队列_CRPCvsNormal.csv",
       "rows": 12,
       "nes": 0.6176,
       "fdr": 0.9335
@@ -1417,15 +1721,256 @@ manifest = {
     {
       "id": "Immune_from_76GO新队列__HSPCcouplevsNormal",
       "gene_set": "Immune_from_76GO新队列",
+      "display_name": "Immune_from_76GO新队列",
       "background": "HSPCcouplevsNormal",
       "background_label": "HSPC couple vs Normal",
       "method": "GSEA",
       "plot_style": "p_combined",
       "svg": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_HSPCcouplevsNormal.svg",
       "pdf": "assets/plots/GSEA_p_combined_Immune_from_76GO新队列_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_Immune_from_76GO新队列_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_Immune_from_76GO新队列_HSPCcouplevsNormal.csv",
       "rows": 12,
       "nes": -0.6719,
       "fdr": 0.8849
+    },
+    {
+      "id": "BB3_all__CRPCvsHSPC",
+      "gene_set": "BB3_all",
+      "display_name": "B3R-R_all",
+      "background": "CRPCvsHSPC",
+      "background_label": "CRPC vs HSPC",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_all_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_all_CRPCvsHSPC.csv",
+      "rows": 505,
+      "nes": 1.3616,
+      "fdr": 0.0451
+    },
+    {
+      "id": "BB3_all__CRPCvsHSPCcouple",
+      "gene_set": "BB3_all",
+      "display_name": "B3R-R_all",
+      "background": "CRPCvsHSPCcouple",
+      "background_label": "CRPC vs HSPC couple",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsHSPCcouple.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_all_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_all_CRPCvsHSPCcouple.csv",
+      "rows": 505,
+      "nes": 1.1544,
+      "fdr": 0.123
+    },
+    {
+      "id": "BB3_all__CRPCvsNormal",
+      "gene_set": "BB3_all",
+      "display_name": "B3R-R_all",
+      "background": "CRPCvsNormal",
+      "background_label": "CRPC vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_all_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_all_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_all_CRPCvsNormal.csv",
+      "rows": 505,
+      "nes": 1.4906,
+      "fdr": 0
+    },
+    {
+      "id": "BB3_all__HSPCcouplevsNormal",
+      "gene_set": "BB3_all",
+      "display_name": "B3R-R_all",
+      "background": "HSPCcouplevsNormal",
+      "background_label": "HSPC couple vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_all_HSPCcouplevsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_all_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_all_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_all_HSPCcouplevsNormal.csv",
+      "rows": 505,
+      "nes": 1.5874,
+      "fdr": 1.6961e-07
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC",
+      "gene_set": "BB3_up",
+      "display_name": "B3R-R_up",
+      "background": "CRPCvsHSPC",
+      "background_label": "CRPC vs HSPC",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_up_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_up_CRPCvsHSPC.csv",
+      "rows": 237,
+      "nes": -1.2546,
+      "fdr": 0.052
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPCcouple",
+      "gene_set": "BB3_up",
+      "display_name": "B3R-R_up",
+      "background": "CRPCvsHSPCcouple",
+      "background_label": "CRPC vs HSPC couple",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsHSPCcouple.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_up_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_up_CRPCvsHSPCcouple.csv",
+      "rows": 237,
+      "nes": 2.2425,
+      "fdr": 1.0632e-13
+    },
+    {
+      "id": "BB3_up__CRPCvsNormal",
+      "gene_set": "BB3_up",
+      "display_name": "B3R-R_up",
+      "background": "CRPCvsNormal",
+      "background_label": "CRPC vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_up_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_up_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_up_CRPCvsNormal.csv",
+      "rows": 237,
+      "nes": 1.425,
+      "fdr": 0.0029
+    },
+    {
+      "id": "BB3_up__HSPCcouplevsNormal",
+      "gene_set": "BB3_up",
+      "display_name": "B3R-R_up",
+      "background": "HSPCcouplevsNormal",
+      "background_label": "HSPC couple vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_up_HSPCcouplevsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_up_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_up_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_up_HSPCcouplevsNormal.csv",
+      "rows": 237,
+      "nes": -1.1767,
+      "fdr": 0.1108
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC",
+      "gene_set": "BB3_down",
+      "display_name": "B3R-R_down",
+      "background": "CRPCvsHSPC",
+      "background_label": "CRPC vs HSPC",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsHSPC.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_down_CRPCvsHSPC.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_down_CRPCvsHSPC.csv",
+      "rows": 268,
+      "nes": 1.8832,
+      "fdr": 0.0008
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPCcouple",
+      "gene_set": "BB3_down",
+      "display_name": "B3R-R_down",
+      "background": "CRPCvsHSPCcouple",
+      "background_label": "CRPC vs HSPC couple",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsHSPCcouple.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsHSPCcouple.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_down_CRPCvsHSPCcouple.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_down_CRPCvsHSPCcouple.csv",
+      "rows": 268,
+      "nes": -2.5551,
+      "fdr": 4.9973e-23
+    },
+    {
+      "id": "BB3_down__CRPCvsNormal",
+      "gene_set": "BB3_down",
+      "display_name": "B3R-R_down",
+      "background": "CRPCvsNormal",
+      "background_label": "CRPC vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_down_CRPCvsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_down_CRPCvsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_down_CRPCvsNormal.csv",
+      "rows": 268,
+      "nes": 1.4396,
+      "fdr": 0.001
+    },
+    {
+      "id": "BB3_down__HSPCcouplevsNormal",
+      "gene_set": "BB3_down",
+      "display_name": "B3R-R_down",
+      "background": "HSPCcouplevsNormal",
+      "background_label": "HSPC couple vs Normal",
+      "method": "GSEA",
+      "plot_style": "p_combined",
+      "svg": "assets/plots/GSEA_p_combined_BB3_down_HSPCcouplevsNormal.svg",
+      "pdf": "assets/plots/GSEA_p_combined_BB3_down_HSPCcouplevsNormal.pdf",
+      "table_csv": "assets/tables/GSEA_result_BB3_down_HSPCcouplevsNormal.csv",
+      "rank_csv": "assets/tables/GSEA_rank_BB3_down_HSPCcouplevsNormal.csv",
+      "rows": 268,
+      "nes": 2.1659,
+      "fdr": 1.2268e-14
+    }
+  ],
+  "heatmaps": [
+    {
+      "id": "Denervation_Aver_1.5x__1.5x均值",
+      "gene_set": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_1.5x_Aver",
+      "sheet": "1.5x均值",
+      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.pdf",
+      "rows": 149,
+      "columns": 8,
+      "source_file": "Denervation_Aver_expression.xlsx"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__每个n均1.5x",
+      "gene_set": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_1.5x_everyn",
+      "sheet": "每个n均1.5x",
+      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.pdf",
+      "rows": 107,
+      "columns": 8,
+      "source_file": "Denervation_everyn_expression.xlsx"
+    },
+    {
+      "id": "BB3_1.5x__BB3up",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "sheet": "BB3up",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_BB3up.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3up.pdf",
+      "rows": 100,
+      "columns": 19,
+      "source_file": "BB3_1.5x_expression.xlsx"
+    },
+    {
+      "id": "BB3_1.5x__BB3down",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "sheet": "BB3down",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_BB3down.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3down.pdf",
+      "rows": 75,
+      "columns": 19,
+      "source_file": "BB3_1.5x_expression.xlsx"
     }
   ],
   "venn_sets": [
@@ -1435,9 +1980,44 @@ manifest = {
       "count": 149
     },
     {
+      "id": "Denervation_Aver_1_5x_up",
+      "name": "Denervation_Aver_1.5x_up",
+      "count": 111
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down",
+      "name": "Denervation_Aver_1.5x_down",
+      "count": 38
+    },
+    {
       "id": "Denervation_everyn_1_5x",
       "name": "Denervation_everyn_1.5x",
       "count": 98
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up",
+      "name": "Denervation_everyn_1.5x_up",
+      "count": 76
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down",
+      "name": "Denervation_everyn_1.5x_down",
+      "count": 22
+    },
+    {
+      "id": "BB3",
+      "name": "BB3",
+      "count": 543
+    },
+    {
+      "id": "BB3_up",
+      "name": "BB3_up",
+      "count": 257
+    },
+    {
+      "id": "BB3_down",
+      "name": "BB3_down",
+      "count": 286
     },
     {
       "id": "BB3_1_5x",
@@ -1532,6 +2112,30 @@ manifest = {
   ],
   "venn": [
     {
+      "id": "Denervation_Aver_1_5x__Denervation_Aver_1_5x_up",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "Denervation_Aver_1.5x_up",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 111,
+      "intersection_count": 111,
+      "intersection_genes": ["TNFRSF4", "SGK1", "EPS8L3", "SERINC2", "KIF6", "PRRG3", "CFTR", "COL3A1", "ANXA3", "MYO15A", "FBXL17", "B2M", "SYT5", "BTN3A2", "DCSTAMP", "GSX1", "SENP2", "CSE1L", "KLK15", "TYROBP", "CST3", "EDNRB", "HTR1A", "CAV3", "VPS37B", "YIF1B", "SYNE1", "FASLG", "EYA4", "CCT3", "SLC13A5", "INSIG1", "SEL1L2", "UBA6", "TUBA1C", "IFITM2", "TRMT112", "SMARCB1", "PATL1", "SLC6A6", "VPS54", "PHB2", "RABGGTA", "ACP4", "RNF217", "LEP", "CDH22", "MRGPRF", "HTR2A", "SPPL2B", "ZDHHC24", "TSPAN17", "CES5A", "TRAM1L1", "AARS1", "GLT6D1", "NHS", "DYNLT2", "CDC25C", "HBS1L", "TSPAN11", "OTOG", "NPHP1", "SLC28A2", "MAOA", "TAAR9", "PHLDA1", "TUBAL3", "TFRC", "EDNRA", "BIRC5", "SERINC4", "COLEC12", "HSPB1", "GABBR1", "REG3A", "CPAMD8", "ADPRHL1", "KIF27", "DENND6A", "LAPTM5", "HDAC1", "VEGFA", "SREBF1", "NR6A1", "FBP1", "PLXNC1", "SYT15", "LPIN2", "SLC1A2", "PDK3", "IGFBP4", "CORT", "EGFR", "CFAP97", "FAM53A", "WDR45", "PBRM1", "PSEN2", "CRYZ"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_Aver_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_Aver_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__Denervation_Aver_1_5x_down",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "Denervation_Aver_1.5x_down",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 38,
+      "intersection_count": 38,
+      "intersection_genes": ["HSPA1L", "MAT1A", "GGACT", "DRD4", "XPNPEP1", "COPS3", "OSER1", "GPX1", "ANKRD26", "GABARAP", "LZTFL1", "TRIM2", "KLF15", "MFSD11", "STAT1", "PRMT9", "NUP50", "BMERB1", "SPRYD7", "POLR2J", "PLEK2", "OTOL1", "PATJ", "MAPK9", "MTF2", "SAMM50", "MFAP5", "HPRT1", "EIF1AD", "WDPCP", "THBD", "MTMR3", "E2F3", "CTSE", "RPS6", "RPL5", "WFDC2", "SCGB1D2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_Aver_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_Aver_1_5x_down.pdf"
+    },
+    {
       "id": "Denervation_Aver_1_5x__Denervation_everyn_1_5x",
       "set1": "Denervation_Aver_1.5x",
       "set2": "Denervation_everyn_1.5x",
@@ -1542,6 +2146,66 @@ manifest = {
       "intersection_genes": ["TNFRSF4", "SGK1", "EPS8L3", "SERINC2", "KIF6", "PRRG3", "CFTR", "COL3A1", "ANXA3", "MYO15A", "FBXL17", "B2M", "SYT5", "BTN3A2", "DCSTAMP", "GSX1", "SENP2", "CSE1L", "KLK15", "TYROBP", "CST3", "EDNRB", "HTR1A", "CAV3", "VPS37B", "YIF1B", "SYNE1", "FASLG", "EYA4", "SLC13A5", "INSIG1", "SEL1L2", "TUBA1C", "IFITM2", "SMARCB1", "PATL1", "SLC6A6", "VPS54", "PHB2", "RABGGTA", "ACP4", "RNF217", "LEP", "CDH22", "MRGPRF", "HTR2A", "SPPL2B", "ZDHHC24", "TSPAN17", "CES5A", "TRAM1L1", "AARS1", "GLT6D1", "NHS", "DYNLT2", "CDC25C", "HBS1L", "TSPAN11", "OTOG", "NPHP1", "SLC28A2", "MAOA", "TAAR9", "PHLDA1", "TFRC", "EDNRA", "BIRC5", "COLEC12", "HSPB1", "GABBR1", "CPAMD8", "LAPTM5", "SREBF1", "LPIN2", "SLC1A2", "CAVIN3", "MAT1A", "GGACT", "DRD4", "ANKRD26", "LZTFL1", "NUP50", "BMERB1", "POLR2J", "PLEK2", "OTOL1", "PATJ", "MAPK9", "MTF2", "MFAP5", "EIF1AD", "WDPCP", "E2F3", "CTSE", "RPS6", "RPL5", "WFDC2", "SCGB1D2"],
       "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x.svg",
       "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__Denervation_everyn_1_5x_up",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "Denervation_everyn_1.5x_up",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 76,
+      "intersection_count": 76,
+      "intersection_genes": ["TNFRSF4", "SGK1", "EPS8L3", "SERINC2", "KIF6", "PRRG3", "CFTR", "COL3A1", "ANXA3", "MYO15A", "FBXL17", "B2M", "SYT5", "BTN3A2", "DCSTAMP", "GSX1", "SENP2", "CSE1L", "KLK15", "TYROBP", "CST3", "EDNRB", "HTR1A", "CAV3", "VPS37B", "YIF1B", "SYNE1", "FASLG", "EYA4", "SLC13A5", "INSIG1", "SEL1L2", "TUBA1C", "IFITM2", "SMARCB1", "PATL1", "SLC6A6", "VPS54", "PHB2", "RABGGTA", "ACP4", "RNF217", "LEP", "CDH22", "MRGPRF", "HTR2A", "SPPL2B", "ZDHHC24", "TSPAN17", "CES5A", "TRAM1L1", "AARS1", "GLT6D1", "NHS", "DYNLT2", "CDC25C", "HBS1L", "TSPAN11", "OTOG", "NPHP1", "SLC28A2", "MAOA", "TAAR9", "PHLDA1", "TFRC", "EDNRA", "BIRC5", "COLEC12", "HSPB1", "GABBR1", "CPAMD8", "LAPTM5", "SREBF1", "LPIN2", "SLC1A2", "CAVIN3"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__Denervation_everyn_1_5x_down",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "Denervation_everyn_1.5x_down",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 22,
+      "intersection_count": 22,
+      "intersection_genes": ["MAT1A", "GGACT", "DRD4", "ANKRD26", "LZTFL1", "NUP50", "BMERB1", "POLR2J", "PLEK2", "OTOL1", "PATJ", "MAPK9", "MTF2", "MFAP5", "EIF1AD", "WDPCP", "E2F3", "CTSE", "RPS6", "RPL5", "WFDC2", "SCGB1D2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_Denervation_everyn_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__BB3",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 543,
+      "intersection_count": 5,
+      "intersection_genes": ["SERINC2", "BTN3A2", "KLK15", "MAOA", "MFSD11"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__BB3_up",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 257,
+      "intersection_count": 3,
+      "intersection_genes": ["SERINC2", "KLK15", "MFSD11"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x__BB3_down",
+      "set1": "Denervation_Aver_1.5x",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 149,
+      "count2": 286,
+      "intersection_count": 2,
+      "intersection_genes": ["BTN3A2", "MAOA"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_BB3_down.pdf"
     },
     {
       "id": "Denervation_Aver_1_5x__BB3_1_5x",
@@ -1760,6 +2424,654 @@ manifest = {
       "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_vs_HSPCcouplevsNormal_1_5x_down.pdf"
     },
     {
+      "id": "Denervation_Aver_1_5x_up__Denervation_Aver_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "Denervation_Aver_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 38,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_Aver_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_Aver_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__Denervation_everyn_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "Denervation_everyn_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 98,
+      "intersection_count": 76,
+      "intersection_genes": ["TNFRSF4", "SGK1", "EPS8L3", "SERINC2", "KIF6", "PRRG3", "CFTR", "COL3A1", "ANXA3", "MYO15A", "FBXL17", "B2M", "SYT5", "BTN3A2", "DCSTAMP", "GSX1", "SENP2", "CSE1L", "KLK15", "TYROBP", "CST3", "EDNRB", "HTR1A", "CAV3", "VPS37B", "YIF1B", "SYNE1", "FASLG", "EYA4", "SLC13A5", "INSIG1", "SEL1L2", "TUBA1C", "IFITM2", "SMARCB1", "PATL1", "SLC6A6", "VPS54", "PHB2", "RABGGTA", "ACP4", "RNF217", "LEP", "CDH22", "MRGPRF", "HTR2A", "SPPL2B", "ZDHHC24", "TSPAN17", "CES5A", "TRAM1L1", "AARS1", "GLT6D1", "NHS", "DYNLT2", "CDC25C", "HBS1L", "TSPAN11", "OTOG", "NPHP1", "SLC28A2", "MAOA", "TAAR9", "PHLDA1", "TFRC", "EDNRA", "BIRC5", "COLEC12", "HSPB1", "GABBR1", "CPAMD8", "LAPTM5", "SREBF1", "LPIN2", "SLC1A2", "CAVIN3"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__Denervation_everyn_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "Denervation_everyn_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 76,
+      "intersection_count": 76,
+      "intersection_genes": ["TNFRSF4", "SGK1", "EPS8L3", "SERINC2", "KIF6", "PRRG3", "CFTR", "COL3A1", "ANXA3", "MYO15A", "FBXL17", "B2M", "SYT5", "BTN3A2", "DCSTAMP", "GSX1", "SENP2", "CSE1L", "KLK15", "TYROBP", "CST3", "EDNRB", "HTR1A", "CAV3", "VPS37B", "YIF1B", "SYNE1", "FASLG", "EYA4", "SLC13A5", "INSIG1", "SEL1L2", "TUBA1C", "IFITM2", "SMARCB1", "PATL1", "SLC6A6", "VPS54", "PHB2", "RABGGTA", "ACP4", "RNF217", "LEP", "CDH22", "MRGPRF", "HTR2A", "SPPL2B", "ZDHHC24", "TSPAN17", "CES5A", "TRAM1L1", "AARS1", "GLT6D1", "NHS", "DYNLT2", "CDC25C", "HBS1L", "TSPAN11", "OTOG", "NPHP1", "SLC28A2", "MAOA", "TAAR9", "PHLDA1", "TFRC", "EDNRA", "BIRC5", "COLEC12", "HSPB1", "GABBR1", "CPAMD8", "LAPTM5", "SREBF1", "LPIN2", "SLC1A2", "CAVIN3"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__Denervation_everyn_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "Denervation_everyn_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_Denervation_everyn_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 543,
+      "intersection_count": 4,
+      "intersection_genes": ["SERINC2", "BTN3A2", "KLK15", "MAOA"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 257,
+      "intersection_count": 2,
+      "intersection_genes": ["SERINC2", "KLK15"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 286,
+      "intersection_count": 2,
+      "intersection_genes": ["BTN3A2", "MAOA"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 175,
+      "intersection_count": 1,
+      "intersection_genes": "BTN3A2",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__BB3_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 75,
+      "intersection_count": 1,
+      "intersection_genes": "BTN3A2",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 22,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 21,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 60,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 35,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPC_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPCcouple_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 117,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 100,
+      "intersection_count": 1,
+      "intersection_genes": "SERINC4",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsNormal_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 2648,
+      "intersection_count": 27,
+      "intersection_genes": ["SGK1", "KLK15", "EDNRB", "EYA4", "CCT3", "SLC6A6", "MRGPRF", "SPPL2B", "NHS", "TSPAN11", "MAOA", "PHLDA1", "EDNRA", "BIRC5", "SERINC4", "COLEC12", "HSPB1", "CPAMD8", "SREBF1", "FBP1", "IGFBP4", "CRYZ", "ACSL1", "RSPO3", "ANO7", "SSR2", "AXL"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsNormal_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 1237,
+      "intersection_count": 12,
+      "intersection_genes": ["KLK15", "CCT3", "SPPL2B", "MAOA", "BIRC5", "SERINC4", "COLEC12", "SREBF1", "FBP1", "ACSL1", "ANO7", "SSR2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__CRPCvsNormal_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 1411,
+      "intersection_count": 15,
+      "intersection_genes": ["SGK1", "EDNRB", "EYA4", "SLC6A6", "MRGPRF", "NHS", "TSPAN11", "PHLDA1", "EDNRA", "HSPB1", "CPAMD8", "IGFBP4", "CRYZ", "RSPO3", "AXL"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__HSPCcouplevsNormal_1_5x",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 2200,
+      "intersection_count": 20,
+      "intersection_genes": ["SGK1", "ANXA3", "KLK15", "EDNRB", "EYA4", "MRGPRF", "MAOA", "PHLDA1", "EDNRA", "BIRC5", "COLEC12", "HSPB1", "CPAMD8", "SREBF1", "FBP1", "IGFBP4", "CRYZ", "RSPO3", "ANO7", "AXL"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__HSPCcouplevsNormal_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 875,
+      "intersection_count": 8,
+      "intersection_genes": ["ANXA3", "KLK15", "MAOA", "BIRC5", "COLEC12", "SREBF1", "FBP1", "ANO7"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_up__HSPCcouplevsNormal_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 111,
+      "count2": 1325,
+      "intersection_count": 12,
+      "intersection_genes": ["SGK1", "EDNRB", "EYA4", "MRGPRF", "PHLDA1", "EDNRA", "HSPB1", "CPAMD8", "IGFBP4", "CRYZ", "RSPO3", "AXL"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_up_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__Denervation_everyn_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "Denervation_everyn_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 98,
+      "intersection_count": 22,
+      "intersection_genes": ["MAT1A", "GGACT", "DRD4", "ANKRD26", "LZTFL1", "NUP50", "BMERB1", "POLR2J", "PLEK2", "OTOL1", "PATJ", "MAPK9", "MTF2", "MFAP5", "EIF1AD", "WDPCP", "E2F3", "CTSE", "RPS6", "RPL5", "WFDC2", "SCGB1D2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__Denervation_everyn_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "Denervation_everyn_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 76,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__Denervation_everyn_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "Denervation_everyn_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 22,
+      "intersection_count": 22,
+      "intersection_genes": ["MAT1A", "GGACT", "DRD4", "ANKRD26", "LZTFL1", "NUP50", "BMERB1", "POLR2J", "PLEK2", "OTOL1", "PATJ", "MAPK9", "MTF2", "MFAP5", "EIF1AD", "WDPCP", "E2F3", "CTSE", "RPS6", "RPL5", "WFDC2", "SCGB1D2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_Denervation_everyn_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 543,
+      "intersection_count": 1,
+      "intersection_genes": "MFSD11",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 257,
+      "intersection_count": 1,
+      "intersection_genes": "MFSD11",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 286,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 175,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__BB3_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 75,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 21,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 60,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 35,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPC_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPCcouple_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 117,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsNormal_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 2648,
+      "intersection_count": 4,
+      "intersection_genes": ["MAT1A", "TRIM2", "KLF15", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsNormal_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 1237,
+      "intersection_count": 1,
+      "intersection_genes": "KLF15",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__CRPCvsNormal_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 1411,
+      "intersection_count": 3,
+      "intersection_genes": ["MAT1A", "TRIM2", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__HSPCcouplevsNormal_1_5x",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 2200,
+      "intersection_count": 4,
+      "intersection_genes": ["MAT1A", "KLF15", "MFAP5", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__HSPCcouplevsNormal_1_5x_up",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 875,
+      "intersection_count": 1,
+      "intersection_genes": "KLF15",
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_Aver_1_5x_down__HSPCcouplevsNormal_1_5x_down",
+      "set1": "Denervation_Aver_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 38,
+      "count2": 1325,
+      "intersection_count": 3,
+      "intersection_genes": ["MAT1A", "MFAP5", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_Aver_1_5x_down_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x__Denervation_everyn_1_5x_up",
+      "set1": "Denervation_everyn_1.5x",
+      "set2": "Denervation_everyn_1.5x_up",
+      "method": "Venn",
+      "count1": 98,
+      "count2": 76,
+      "intersection_count": 76,
+      "intersection_genes": ["TNFRSF4", "CFTR", "DCSTAMP", "GSX1", "SYT5", "SYNE1", "FBXL17", "FASLG", "TYROBP", "PRRG3", "COL3A1", "MYO15A", "KLK15", "CAV3", "KIF6", "EPS8L3", "B2M", "CES5A", "ANXA3", "ACP4", "NHS", "GLT6D1", "HTR1A", "TSPAN17", "AARS1", "SLC6A6", "TFRC", "INSIG1", "MRGPRF", "TUBA1C", "HTR2A", "SEL1L2", "HBS1L", "PATL1", "DYNLT2", "VPS54", "SERINC2", "ZDHHC24", "PHB2", "OTOG", "SPPL2B", "SGK1", "YIF1B", "VPS37B", "SMARCB1", "CST3", "SLC13A5", "CDC25C", "EYA4", "PHLDA1", "IFITM2", "SLC28A2", "SENP2", "EDNRB", "CSE1L", "RABGGTA", "MAOA", "BTN3A2", "TAAR9", "TSPAN11", "TRAM1L1", "COLEC12", "RNF217", "CDH22", "LEP", "EDNRA", "NPHP1", "HSPB1", "CAVIN3", "BIRC5", "CPAMD8", "LAPTM5", "LPIN2", "SREBF1", "SLC1A2", "GABBR1"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_Denervation_everyn_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_Denervation_everyn_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x__Denervation_everyn_1_5x_down",
+      "set1": "Denervation_everyn_1.5x",
+      "set2": "Denervation_everyn_1.5x_down",
+      "method": "Venn",
+      "count1": 98,
+      "count2": 22,
+      "intersection_count": 22,
+      "intersection_genes": ["POLR2J", "DRD4", "GGACT", "MFAP5", "LZTFL1", "BMERB1", "EIF1AD", "E2F3", "PATJ", "PLEK2", "MAPK9", "MAT1A", "MTF2", "OTOL1", "ANKRD26", "NUP50", "RPS6", "WDPCP", "RPL5", "CTSE", "WFDC2", "SCGB1D2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_Denervation_everyn_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_Denervation_everyn_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x__BB3",
+      "set1": "Denervation_everyn_1.5x",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 98,
+      "count2": 543,
+      "intersection_count": 4,
+      "intersection_genes": ["KLK15", "SERINC2", "MAOA", "BTN3A2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x__BB3_up",
+      "set1": "Denervation_everyn_1.5x",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 98,
+      "count2": 257,
+      "intersection_count": 2,
+      "intersection_genes": ["KLK15", "SERINC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x__BB3_down",
+      "set1": "Denervation_everyn_1.5x",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 98,
+      "count2": 286,
+      "intersection_count": 2,
+      "intersection_genes": ["MAOA", "BTN3A2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_BB3_down.pdf"
+    },
+    {
       "id": "Denervation_everyn_1_5x__BB3_1_5x",
       "set1": "Denervation_everyn_1.5x",
       "set2": "BB3_1.5x",
@@ -1974,6 +3286,1206 @@ manifest = {
       "intersection_genes": ["MRGPRF", "SGK1", "EYA4", "PHLDA1", "EDNRB", "EDNRA", "HSPB1", "CPAMD8", "MFAP5", "MAT1A", "WFDC2"],
       "svg": "assets/plots/Venn_Denervation_everyn_1_5x_vs_HSPCcouplevsNormal_1_5x_down.svg",
       "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__Denervation_everyn_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "Denervation_everyn_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_Denervation_everyn_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_Denervation_everyn_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 543,
+      "intersection_count": 4,
+      "intersection_genes": ["KLK15", "SERINC2", "MAOA", "BTN3A2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 257,
+      "intersection_count": 2,
+      "intersection_genes": ["KLK15", "SERINC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 286,
+      "intersection_count": 2,
+      "intersection_genes": ["MAOA", "BTN3A2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3_1_5x",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 175,
+      "intersection_count": 1,
+      "intersection_genes": "BTN3A2",
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__BB3_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 75,
+      "intersection_count": 1,
+      "intersection_genes": "BTN3A2",
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC_1_5x",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 21,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 60,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 35,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPC_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPCcouple_1_5x",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 117,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsNormal_1_5x",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 2648,
+      "intersection_count": 17,
+      "intersection_genes": ["KLK15", "NHS", "SLC6A6", "MRGPRF", "SPPL2B", "SGK1", "EYA4", "PHLDA1", "EDNRB", "MAOA", "TSPAN11", "COLEC12", "EDNRA", "HSPB1", "BIRC5", "CPAMD8", "SREBF1"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsNormal_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 1237,
+      "intersection_count": 6,
+      "intersection_genes": ["KLK15", "SPPL2B", "MAOA", "COLEC12", "BIRC5", "SREBF1"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__CRPCvsNormal_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 1411,
+      "intersection_count": 11,
+      "intersection_genes": ["NHS", "SLC6A6", "MRGPRF", "SGK1", "EYA4", "PHLDA1", "EDNRB", "TSPAN11", "EDNRA", "HSPB1", "CPAMD8"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__HSPCcouplevsNormal_1_5x",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 2200,
+      "intersection_count": 14,
+      "intersection_genes": ["KLK15", "ANXA3", "MRGPRF", "SGK1", "EYA4", "PHLDA1", "EDNRB", "MAOA", "COLEC12", "EDNRA", "HSPB1", "BIRC5", "CPAMD8", "SREBF1"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__HSPCcouplevsNormal_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 875,
+      "intersection_count": 6,
+      "intersection_genes": ["KLK15", "ANXA3", "MAOA", "COLEC12", "BIRC5", "SREBF1"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_up__HSPCcouplevsNormal_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_up",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 76,
+      "count2": 1325,
+      "intersection_count": 8,
+      "intersection_genes": ["MRGPRF", "SGK1", "EYA4", "PHLDA1", "EDNRB", "EDNRA", "HSPB1", "CPAMD8"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_up_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 543,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 257,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 286,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3_1_5x",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 175,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__BB3_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 75,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC_1_5x",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 21,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 60,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 35,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPC_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPCcouple_1_5x",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 117,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsNormal_1_5x",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 2648,
+      "intersection_count": 2,
+      "intersection_genes": ["MAT1A", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsNormal_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 1237,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__CRPCvsNormal_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 1411,
+      "intersection_count": 2,
+      "intersection_genes": ["MAT1A", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__HSPCcouplevsNormal_1_5x",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 2200,
+      "intersection_count": 3,
+      "intersection_genes": ["MFAP5", "MAT1A", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__HSPCcouplevsNormal_1_5x_up",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 875,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "Denervation_everyn_1_5x_down__HSPCcouplevsNormal_1_5x_down",
+      "set1": "Denervation_everyn_1.5x_down",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 22,
+      "count2": 1325,
+      "intersection_count": 3,
+      "intersection_genes": ["MFAP5", "MAT1A", "WFDC2"],
+      "svg": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_Denervation_everyn_1_5x_down_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3__BB3_up",
+      "set1": "BB3",
+      "set2": "BB3_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 257,
+      "intersection_count": 257,
+      "intersection_genes": ["ABHD12", "ABTB1", "AGBL3", "AGER", "AKTIP", "ALDH2", "ARIH2OS", "ARPC1B", "ARPC3", "ATP5F1E", "ATP5IF1", "ATP5MG", "ATP5MPL", "ATP5PD", "ATP5S", "ATP6V0E1", "ATP6V1E1", "AXDND1", "BAK1", "BANP", "BEX2", "BEX3", "BLCAP", "BLOC1S1", "BMF", "BMI1", "C15orf40", "C16orf91", "C17orf75", "C19orf18", "C19orf25", "C1QTNF12", "C1orf210", "C20orf204", "C8orf76", "C9orf116", "CALML6", "CARD9", "CASP7", "CCAR2", "CCDC144NL", "CCNE1", "CDKN2D", "CEACAM19", "CENPH", "CHCHD7", "CHTOP", "CIRBP", "CKS1B", "CLTB", "CNEP1R1", "CNIH4", "COX14", "COX6A1", "COX7C", "COX8A", "CRAMP1", "CTSL", "CYSTM1", "DAP3", "DAZAP2", "DCTN3", "DDB2", "DENND2A", "DGUOK", "DHRS1", "DLGAP2", "DNASE1L3", "DNTTIP1", "DSN1", "DYNLT3", "EEF1AKMT2", "EFHB", "EID2B", "ELOC", "EMC10", "EMC7", "ENPP3", "ENSA", "ERH", "FAM177A1", "FBXO2", "FCHSD1", "FKBP6", "GALT", "GATM", "GCA", "GDPGP1", "GINS1", "GLOD4", "GNG10", "GOLT1A", "GPN2", "GRB7", "HDAC8", "HELLS", "HES1", "HEXA", "HIGD1A", "HLA-A"],
+      "svg": "assets/plots/Venn_BB3_vs_BB3_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_BB3_up.pdf"
+    },
+    {
+      "id": "BB3__BB3_down",
+      "set1": "BB3",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 286,
+      "intersection_count": 286,
+      "intersection_genes": ["SEP3", "AARS2", "ABCC4", "ABL2", "AC107871", "ACACA", "ACLY", "ACSL3", "ADAR", "ADRA2A", "AKAP12", "ALDH1B1", "AMER1", "ANKH", "ANKRD13B", "ANKS1B", "ANXA6", "AR", "ARHGEF17", "ARNT2", "ASAP2", "ATG9A", "ATP13A2", "ATP2C1", "ATP8B2", "ATRX", "AVL9", "AZI2", "BBS9", "BCAS3", "BCL9", "BICD2", "BMP6", "BRPF3", "BTBD9", "BTN3A2", "C2CD2", "CABIN1", "CADPS2", "CAPN5", "CCDC88C", "CDC42SE1", "CDC5L", "CDK12", "CHST3", "CHTF8", "COG5", "CREB1", "CSDE1", "CTIF", "DCAF1", "DCHS1", "DDX18", "DDX21", "DDX3X", "DDX3Y", "DGAT2", "DIAPH2", "DIS3L", "DLG1", "DOCK1", "DUSP4", "DYNC2H1", "EARS2", "EBF2", "EDA", "EEF2", "EIF2A", "ELP1", "EMB", "ENTPD5", "EPC2", "EPM2AIP1", "ERCC6", "EXOC4", "FADS1", "FAM169A", "FARP1", "FASN", "FASTKD2", "FBXO11", "FEM1A", "FKBP4", "FKBP5", "FKTN", "FLII", "FLNA", "FOXO4", "GATD3B", "GCNT1", "GDF11", "GEMIN4", "GEMIN5", "GLYATL1B", "GPHN", "GPR27", "GTF2I", "HDLBP", "HERC6", "HIST1H2AC"],
+      "svg": "assets/plots/Venn_BB3_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_BB3_down.pdf"
+    },
+    {
+      "id": "BB3__BB3_1_5x",
+      "set1": "BB3",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 175,
+      "intersection_count": 166,
+      "intersection_genes": ["ABTB1", "AGER", "ARIH2OS", "ARPC1B", "ATP5F1E", "ATP5MG", "ATP5MPL", "ATP5PD", "AXDND1", "BANP", "BEX2", "BLOC1S1", "C19orf18", "C1QTNF12", "C20orf204", "C8orf76", "CALML6", "CARD9", "CCDC144NL", "CEACAM19", "CIRBP", "CKS1B", "COX14", "COX6A1", "COX8A", "DCTN3", "DDB2", "DENND2A", "DLGAP2", "DSN1", "EFHB", "FBXO2", "FCHSD1", "FKBP6", "GATM", "GDPGP1", "GNG10", "HELLS", "HES1", "HEXA", "HLA-A", "HLA-B", "HOXB7", "HOXC4", "HYKK", "IL3RA", "KCNAB3", "KISS1", "KRT10", "KRTCAP2", "LCN2", "LTB4R", "LYRM9", "MMP10", "MORN2", "MSMB", "MUC1", "MYL6", "MYPOP", "NDUFAB1", "NDUFB1", "NDUFC2", "OAZ3", "PCLAF", "POLG2", "PRR13", "PSENEN", "RENBP", "RHBDD2", "RPL21", "RPL3L", "SDCBP2", "SLC6A16", "SMIM27", "SMIM4", "SNCAIP", "SNRPN", "SPATA33", "SPATA6L", "SQOR", "TARDBP", "TEX19", "TMA7", "TMEM14B", "TMEM173", "TMEM189", "TNNC1", "TSGA13", "UPK3A", "UQCR11", "VAMP5", "VKORC1", "WRB", "ZNF684", "ZNRD1", "ABL2", "AC107871", "ACACA", "ADRA2A", "AKAP12"],
+      "svg": "assets/plots/Venn_BB3_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "BB3__BB3_1_5x_up",
+      "set1": "BB3",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 100,
+      "intersection_count": 95,
+      "intersection_genes": ["ABTB1", "AGER", "ARIH2OS", "ARPC1B", "ATP5F1E", "ATP5MG", "ATP5MPL", "ATP5PD", "AXDND1", "BANP", "BEX2", "BLOC1S1", "C19orf18", "C1QTNF12", "C20orf204", "C8orf76", "CALML6", "CARD9", "CCDC144NL", "CEACAM19", "CIRBP", "CKS1B", "COX14", "COX6A1", "COX8A", "DCTN3", "DDB2", "DENND2A", "DLGAP2", "DSN1", "EFHB", "FBXO2", "FCHSD1", "FKBP6", "GATM", "GDPGP1", "GNG10", "HELLS", "HES1", "HEXA", "HLA-A", "HLA-B", "HOXB7", "HOXC4", "HYKK", "IL3RA", "KCNAB3", "KISS1", "KRT10", "KRTCAP2", "LCN2", "LTB4R", "LYRM9", "MMP10", "MORN2", "MSMB", "MUC1", "MYL6", "MYPOP", "NDUFAB1", "NDUFB1", "NDUFC2", "OAZ3", "PCLAF", "POLG2", "PRR13", "PSENEN", "RENBP", "RHBDD2", "RPL21", "RPL3L", "SDCBP2", "SLC6A16", "SMIM27", "SMIM4", "SNCAIP", "SNRPN", "SPATA33", "SPATA6L", "SQOR", "TARDBP", "TEX19", "TMA7", "TMEM14B", "TMEM173", "TMEM189", "TNNC1", "TSGA13", "UPK3A", "UQCR11", "VAMP5", "VKORC1", "WRB", "ZNF684", "ZNRD1"],
+      "svg": "assets/plots/Venn_BB3_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3__BB3_1_5x_down",
+      "set1": "BB3",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 75,
+      "intersection_count": 71,
+      "intersection_genes": ["ABL2", "AC107871", "ACACA", "ADRA2A", "AKAP12", "ANKRD13B", "ANKS1B", "ARHGEF17", "ASAP2", "ATG9A", "BMP6", "BTN3A2", "CADPS2", "CAPN5", "CHST3", "DCHS1", "DUSP4", "EBF2", "FAM169A", "FASTKD2", "FEM1A", "FOXO4", "GLYATL1B", "GPR27", "GTF2I", "HIST1H2BG", "HIST2H2BE", "HIST2H2BF", "HR", "IGFBP5", "JCAD", "LDLR", "LRRC32", "MEX3A", "MICAL3", "NEXMIF", "NOS1AP", "P4HA1", "PARP4", "PCDHB12", "PCDHGB5", "PCNX2", "PCSK7", "PLEKHH1", "PLXNB3", "PPP2R2C", "PRDM1", "PRIMA1", "PTGER4", "RALGAPA1", "RALGAPA2", "SAPCD2", "SHANK3", "SLC26A1", "SLC35E2B", "SPG11", "SPRED1", "TAF4B", "TANC2", "TM9SF4", "TNC", "TRAPPC10", "TTC37", "TTYH2", "TUBGCP4", "ZBTB16", "ZFR", "ZNF354C", "ZNF384", "ZNF728", "ZNF770"],
+      "svg": "assets/plots/Venn_BB3_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC_1_5x",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 22,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC_1_5x_up",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 21,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC_1_5x_down",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 60,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC_up",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 35,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPC_down",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPCcouple_1_5x",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 117,
+      "intersection_count": 4,
+      "intersection_genes": ["BEX2", "NDUFAB1", "RPL21", "UQCRQ"],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 100,
+      "intersection_count": 4,
+      "intersection_genes": ["BEX2", "NDUFAB1", "RPL21", "UQCRQ"],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "BB3",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsNormal_1_5x",
+      "set1": "BB3",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 2648,
+      "intersection_count": 79,
+      "intersection_genes": ["ABHD12", "ALDH2", "COX6A1", "DDB2", "DENND2A", "DNASE1L3", "FBXO2", "GATM", "HOXB7", "HOXC4", "KLK15", "MMP10", "NDUFAF6", "PDCD2L", "PDCD5", "PKIB", "PPIA", "PRR15L", "SLC25A42", "SMIM4", "SNRPN", "UQCRQ", "VAMP5", "ZMYND19", "ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "ANKRD13B", "ANXA6", "AR", "ARHGEF17", "ATP13A2", "ATP2C1", "CHST3", "DCHS1", "DUSP4", "EEF2", "EMB", "ENTPD5", "FADS1", "FASN", "FKBP4", "FLNA", "GCNT1", "HR", "IGFBP5", "IMPDH2", "ISYNA1", "KCNH2", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "P4HA1", "PLEKHH1", "PLXNB3", "PRIMA1", "RALGAPA2", "RORC", "SAPCD2", "SH3PXD2B", "SLC12A8", "SLC26A1", "SMPDL3B", "SPRED1", "STEAP3", "TIPARP", "TM7SF3", "TMTC4", "TNC", "TRIM14", "TWNK", "ZBTB16", "ZBTB45", "ZKSCAN1", "ZNF350"],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsNormal_1_5x_up",
+      "set1": "BB3",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 1237,
+      "intersection_count": 53,
+      "intersection_genes": ["ABHD12", "COX6A1", "HOXC4", "KLK15", "MMP10", "NDUFAF6", "PDCD2L", "PDCD5", "PKIB", "PPIA", "PRR15L", "SLC25A42", "SMIM4", "SNRPN", "UQCRQ", "ZMYND19", "ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "ANKRD13B", "AR", "ATP13A2", "ATP2C1", "EEF2", "EMB", "ENTPD5", "FASN", "FKBP4", "GCNT1", "IMPDH2", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "P4HA1", "PLEKHH1", "PLXNB3", "RALGAPA2", "RORC", "SAPCD2", "SLC12A8", "SLC26A1", "SMPDL3B", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZBTB45", "ZKSCAN1", "ZNF350"],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3__CRPCvsNormal_1_5x_down",
+      "set1": "BB3",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 1411,
+      "intersection_count": 26,
+      "intersection_genes": ["ALDH2", "DDB2", "DENND2A", "DNASE1L3", "FBXO2", "GATM", "HOXB7", "VAMP5", "ANXA6", "ARHGEF17", "CHST3", "DCHS1", "DUSP4", "FADS1", "FLNA", "HR", "IGFBP5", "ISYNA1", "KCNH2", "PRIMA1", "SH3PXD2B", "SPRED1", "STEAP3", "TIPARP", "TM7SF3", "TNC"],
+      "svg": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3__HSPCcouplevsNormal_1_5x",
+      "set1": "BB3",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 2200,
+      "intersection_count": 77,
+      "intersection_genes": ["ALDH2", "BEX2", "CKS1B", "DDB2", "DNASE1L3", "FBXO2", "GATM", "HIGD1A", "HOXB7", "HOXC4", "ISCU", "KLK15", "MGST1", "MMP10", "MYL6", "PKIB", "PLPP5", "PRR15L", "SDCBP2", "SLC25A42", "TNNC1", "VAMP5", "ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "AKAP12", "ANXA6", "AR", "ARHGEF17", "ATP2C1", "AVL9", "BCL9", "BMP6", "CHST3", "DDX21", "DUSP4", "EEF2", "EMB", "ENTPD5", "FARP1", "FASN", "FLNA", "GCNT1", "HDLBP", "HR", "IMPDH2", "ISYNA1", "KCNH2", "LRBA", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "NCAPD3", "NEK6", "P4HA1", "PLEKHH1", "PLXNB3", "PRIMA1", "RALGAPA2", "RORC", "SAPCD2", "SH3PXD2B", "SHANK2", "SLC12A8", "SMPDL3B", "STEAP3", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZKSCAN1", "ZNF350", "ZNF614"],
+      "svg": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3__HSPCcouplevsNormal_1_5x_up",
+      "set1": "BB3",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 875,
+      "intersection_count": 51,
+      "intersection_genes": ["HOXC4", "KLK15", "MGST1", "MMP10", "PKIB", "PLPP5", "PRR15L", "SLC25A42", "ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "AR", "ATP2C1", "AVL9", "BCL9", "BMP6", "DDX21", "EEF2", "EMB", "ENTPD5", "FARP1", "FASN", "GCNT1", "HDLBP", "IMPDH2", "LRBA", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "NCAPD3", "NEK6", "P4HA1", "PLEKHH1", "PLXNB3", "RALGAPA2", "RORC", "SAPCD2", "SHANK2", "SLC12A8", "SMPDL3B", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZKSCAN1", "ZNF350", "ZNF614"],
+      "svg": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3__HSPCcouplevsNormal_1_5x_down",
+      "set1": "BB3",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 543,
+      "count2": 1325,
+      "intersection_count": 26,
+      "intersection_genes": ["ALDH2", "BEX2", "CKS1B", "DDB2", "DNASE1L3", "FBXO2", "GATM", "HIGD1A", "HOXB7", "ISCU", "MYL6", "SDCBP2", "TNNC1", "VAMP5", "AKAP12", "ANXA6", "ARHGEF17", "CHST3", "DUSP4", "FLNA", "HR", "ISYNA1", "KCNH2", "PRIMA1", "SH3PXD2B", "STEAP3"],
+      "svg": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_up__BB3_down",
+      "set1": "BB3_up",
+      "set2": "BB3_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 286,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_BB3_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_BB3_down.pdf"
+    },
+    {
+      "id": "BB3_up__BB3_1_5x",
+      "set1": "BB3_up",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 175,
+      "intersection_count": 95,
+      "intersection_genes": ["ABTB1", "AGER", "ARIH2OS", "ARPC1B", "ATP5F1E", "ATP5MG", "ATP5MPL", "ATP5PD", "AXDND1", "BANP", "BEX2", "BLOC1S1", "C19orf18", "C1QTNF12", "C20orf204", "C8orf76", "CALML6", "CARD9", "CCDC144NL", "CEACAM19", "CIRBP", "CKS1B", "COX14", "COX6A1", "COX8A", "DCTN3", "DDB2", "DENND2A", "DLGAP2", "DSN1", "EFHB", "FBXO2", "FCHSD1", "FKBP6", "GATM", "GDPGP1", "GNG10", "HELLS", "HES1", "HEXA", "HLA-A", "HLA-B", "HOXB7", "HOXC4", "HYKK", "IL3RA", "KCNAB3", "KISS1", "KRT10", "KRTCAP2", "LCN2", "LTB4R", "LYRM9", "MMP10", "MORN2", "MSMB", "MUC1", "MYL6", "MYPOP", "NDUFAB1", "NDUFB1", "NDUFC2", "OAZ3", "PCLAF", "POLG2", "PRR13", "PSENEN", "RENBP", "RHBDD2", "RPL21", "RPL3L", "SDCBP2", "SLC6A16", "SMIM27", "SMIM4", "SNCAIP", "SNRPN", "SPATA33", "SPATA6L", "SQOR", "TARDBP", "TEX19", "TMA7", "TMEM14B", "TMEM173", "TMEM189", "TNNC1", "TSGA13", "UPK3A", "UQCR11", "VAMP5", "VKORC1", "WRB", "ZNF684", "ZNRD1"],
+      "svg": "assets/plots/Venn_BB3_up_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "BB3_up__BB3_1_5x_up",
+      "set1": "BB3_up",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 100,
+      "intersection_count": 95,
+      "intersection_genes": ["ABTB1", "AGER", "ARIH2OS", "ARPC1B", "ATP5F1E", "ATP5MG", "ATP5MPL", "ATP5PD", "AXDND1", "BANP", "BEX2", "BLOC1S1", "C19orf18", "C1QTNF12", "C20orf204", "C8orf76", "CALML6", "CARD9", "CCDC144NL", "CEACAM19", "CIRBP", "CKS1B", "COX14", "COX6A1", "COX8A", "DCTN3", "DDB2", "DENND2A", "DLGAP2", "DSN1", "EFHB", "FBXO2", "FCHSD1", "FKBP6", "GATM", "GDPGP1", "GNG10", "HELLS", "HES1", "HEXA", "HLA-A", "HLA-B", "HOXB7", "HOXC4", "HYKK", "IL3RA", "KCNAB3", "KISS1", "KRT10", "KRTCAP2", "LCN2", "LTB4R", "LYRM9", "MMP10", "MORN2", "MSMB", "MUC1", "MYL6", "MYPOP", "NDUFAB1", "NDUFB1", "NDUFC2", "OAZ3", "PCLAF", "POLG2", "PRR13", "PSENEN", "RENBP", "RHBDD2", "RPL21", "RPL3L", "SDCBP2", "SLC6A16", "SMIM27", "SMIM4", "SNCAIP", "SNRPN", "SPATA33", "SPATA6L", "SQOR", "TARDBP", "TEX19", "TMA7", "TMEM14B", "TMEM173", "TMEM189", "TNNC1", "TSGA13", "UPK3A", "UQCR11", "VAMP5", "VKORC1", "WRB", "ZNF684", "ZNRD1"],
+      "svg": "assets/plots/Venn_BB3_up_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_up__BB3_1_5x_down",
+      "set1": "BB3_up",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 75,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC_1_5x",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 22,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC_1_5x_up",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 21,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC_1_5x_down",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 60,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC_up",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 35,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPC_down",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPCcouple_1_5x",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 117,
+      "intersection_count": 4,
+      "intersection_genes": ["BEX2", "NDUFAB1", "RPL21", "UQCRQ"],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 100,
+      "intersection_count": 4,
+      "intersection_genes": ["BEX2", "NDUFAB1", "RPL21", "UQCRQ"],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "BB3_up",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsNormal_1_5x",
+      "set1": "BB3_up",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 2648,
+      "intersection_count": 24,
+      "intersection_genes": ["ABHD12", "ALDH2", "COX6A1", "DDB2", "DENND2A", "DNASE1L3", "FBXO2", "GATM", "HOXB7", "HOXC4", "KLK15", "MMP10", "NDUFAF6", "PDCD2L", "PDCD5", "PKIB", "PPIA", "PRR15L", "SLC25A42", "SMIM4", "SNRPN", "UQCRQ", "VAMP5", "ZMYND19"],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsNormal_1_5x_up",
+      "set1": "BB3_up",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 1237,
+      "intersection_count": 16,
+      "intersection_genes": ["ABHD12", "COX6A1", "HOXC4", "KLK15", "MMP10", "NDUFAF6", "PDCD2L", "PDCD5", "PKIB", "PPIA", "PRR15L", "SLC25A42", "SMIM4", "SNRPN", "UQCRQ", "ZMYND19"],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_up__CRPCvsNormal_1_5x_down",
+      "set1": "BB3_up",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 1411,
+      "intersection_count": 8,
+      "intersection_genes": ["ALDH2", "DDB2", "DENND2A", "DNASE1L3", "FBXO2", "GATM", "HOXB7", "VAMP5"],
+      "svg": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_up__HSPCcouplevsNormal_1_5x",
+      "set1": "BB3_up",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 2200,
+      "intersection_count": 22,
+      "intersection_genes": ["ALDH2", "BEX2", "CKS1B", "DDB2", "DNASE1L3", "FBXO2", "GATM", "HIGD1A", "HOXB7", "HOXC4", "ISCU", "KLK15", "MGST1", "MMP10", "MYL6", "PKIB", "PLPP5", "PRR15L", "SDCBP2", "SLC25A42", "TNNC1", "VAMP5"],
+      "svg": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3_up__HSPCcouplevsNormal_1_5x_up",
+      "set1": "BB3_up",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 875,
+      "intersection_count": 8,
+      "intersection_genes": ["HOXC4", "KLK15", "MGST1", "MMP10", "PKIB", "PLPP5", "PRR15L", "SLC25A42"],
+      "svg": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_up__HSPCcouplevsNormal_1_5x_down",
+      "set1": "BB3_up",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 257,
+      "count2": 1325,
+      "intersection_count": 14,
+      "intersection_genes": ["ALDH2", "BEX2", "CKS1B", "DDB2", "DNASE1L3", "FBXO2", "GATM", "HIGD1A", "HOXB7", "ISCU", "MYL6", "SDCBP2", "TNNC1", "VAMP5"],
+      "svg": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_up_vs_HSPCcouplevsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_down__BB3_1_5x",
+      "set1": "BB3_down",
+      "set2": "BB3_1.5x",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 175,
+      "intersection_count": 71,
+      "intersection_genes": ["ABL2", "AC107871", "ACACA", "ADRA2A", "AKAP12", "ANKRD13B", "ANKS1B", "ARHGEF17", "ASAP2", "ATG9A", "BMP6", "BTN3A2", "CADPS2", "CAPN5", "CHST3", "DCHS1", "DUSP4", "EBF2", "FAM169A", "FASTKD2", "FEM1A", "FOXO4", "GLYATL1B", "GPR27", "GTF2I", "HIST1H2BG", "HIST2H2BE", "HIST2H2BF", "HR", "IGFBP5", "JCAD", "LDLR", "LRRC32", "MEX3A", "MICAL3", "NEXMIF", "NOS1AP", "P4HA1", "PARP4", "PCDHB12", "PCDHGB5", "PCNX2", "PCSK7", "PLEKHH1", "PLXNB3", "PPP2R2C", "PRDM1", "PRIMA1", "PTGER4", "RALGAPA1", "RALGAPA2", "SAPCD2", "SHANK3", "SLC26A1", "SLC35E2B", "SPG11", "SPRED1", "TAF4B", "TANC2", "TM9SF4", "TNC", "TRAPPC10", "TTC37", "TTYH2", "TUBGCP4", "ZBTB16", "ZFR", "ZNF354C", "ZNF384", "ZNF728", "ZNF770"],
+      "svg": "assets/plots/Venn_BB3_down_vs_BB3_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_BB3_1_5x.pdf"
+    },
+    {
+      "id": "BB3_down__BB3_1_5x_up",
+      "set1": "BB3_down",
+      "set2": "BB3_1.5x_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_BB3_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_BB3_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_down__BB3_1_5x_down",
+      "set1": "BB3_down",
+      "set2": "BB3_1.5x_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 75,
+      "intersection_count": 71,
+      "intersection_genes": ["ABL2", "AC107871", "ACACA", "ADRA2A", "AKAP12", "ANKRD13B", "ANKS1B", "ARHGEF17", "ASAP2", "ATG9A", "BMP6", "BTN3A2", "CADPS2", "CAPN5", "CHST3", "DCHS1", "DUSP4", "EBF2", "FAM169A", "FASTKD2", "FEM1A", "FOXO4", "GLYATL1B", "GPR27", "GTF2I", "HIST1H2BG", "HIST2H2BE", "HIST2H2BF", "HR", "IGFBP5", "JCAD", "LDLR", "LRRC32", "MEX3A", "MICAL3", "NEXMIF", "NOS1AP", "P4HA1", "PARP4", "PCDHB12", "PCDHGB5", "PCNX2", "PCSK7", "PLEKHH1", "PLXNB3", "PPP2R2C", "PRDM1", "PRIMA1", "PTGER4", "RALGAPA1", "RALGAPA2", "SAPCD2", "SHANK3", "SLC26A1", "SLC35E2B", "SPG11", "SPRED1", "TAF4B", "TANC2", "TM9SF4", "TNC", "TRAPPC10", "TTC37", "TTYH2", "TUBGCP4", "ZBTB16", "ZFR", "ZNF354C", "ZNF384", "ZNF728", "ZNF770"],
+      "svg": "assets/plots/Venn_BB3_down_vs_BB3_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_BB3_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC_1_5x",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC_1.5x",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 22,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC_1_5x_up",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC_1.5x_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 21,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC_1_5x_down",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC_1.5x_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 1,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 60,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC_up",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 35,
+      "intersection_count": 1,
+      "intersection_genes": "AR",
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_up.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPC_down",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPC_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 25,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPC_down.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPCcouple_1_5x",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPCcouple_1.5x",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 117,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPCcouple_1_5x_up",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 100,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsHSPCcouple_1_5x_down",
+      "set1": "BB3_down",
+      "set2": "CRPCvsHSPCcouple_1.5x_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 17,
+      "intersection_count": 0,
+      "intersection_genes": [],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsHSPCcouple_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsNormal_1_5x",
+      "set1": "BB3_down",
+      "set2": "CRPCvsNormal_1.5x",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 2648,
+      "intersection_count": 55,
+      "intersection_genes": ["ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "ANKRD13B", "ANXA6", "AR", "ARHGEF17", "ATP13A2", "ATP2C1", "CHST3", "DCHS1", "DUSP4", "EEF2", "EMB", "ENTPD5", "FADS1", "FASN", "FKBP4", "FLNA", "GCNT1", "HR", "IGFBP5", "IMPDH2", "ISYNA1", "KCNH2", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "P4HA1", "PLEKHH1", "PLXNB3", "PRIMA1", "RALGAPA2", "RORC", "SAPCD2", "SH3PXD2B", "SLC12A8", "SLC26A1", "SMPDL3B", "SPRED1", "STEAP3", "TIPARP", "TM7SF3", "TMTC4", "TNC", "TRIM14", "TWNK", "ZBTB16", "ZBTB45", "ZKSCAN1", "ZNF350"],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsNormal_1_5x_up",
+      "set1": "BB3_down",
+      "set2": "CRPCvsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 1237,
+      "intersection_count": 37,
+      "intersection_genes": ["ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "ANKRD13B", "AR", "ATP13A2", "ATP2C1", "EEF2", "EMB", "ENTPD5", "FASN", "FKBP4", "GCNT1", "IMPDH2", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "P4HA1", "PLEKHH1", "PLXNB3", "RALGAPA2", "RORC", "SAPCD2", "SLC12A8", "SLC26A1", "SMPDL3B", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZBTB45", "ZKSCAN1", "ZNF350"],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_down__CRPCvsNormal_1_5x_down",
+      "set1": "BB3_down",
+      "set2": "CRPCvsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 1411,
+      "intersection_count": 18,
+      "intersection_genes": ["ANXA6", "ARHGEF17", "CHST3", "DCHS1", "DUSP4", "FADS1", "FLNA", "HR", "IGFBP5", "ISYNA1", "KCNH2", "PRIMA1", "SH3PXD2B", "SPRED1", "STEAP3", "TIPARP", "TM7SF3", "TNC"],
+      "svg": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_CRPCvsNormal_1_5x_down.pdf"
+    },
+    {
+      "id": "BB3_down__HSPCcouplevsNormal_1_5x",
+      "set1": "BB3_down",
+      "set2": "HSPCcouplevsNormal_1.5x",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 2200,
+      "intersection_count": 55,
+      "intersection_genes": ["ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "AKAP12", "ANXA6", "AR", "ARHGEF17", "ATP2C1", "AVL9", "BCL9", "BMP6", "CHST3", "DDX21", "DUSP4", "EEF2", "EMB", "ENTPD5", "FARP1", "FASN", "FLNA", "GCNT1", "HDLBP", "HR", "IMPDH2", "ISYNA1", "KCNH2", "LRBA", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "NCAPD3", "NEK6", "P4HA1", "PLEKHH1", "PLXNB3", "PRIMA1", "RALGAPA2", "RORC", "SAPCD2", "SH3PXD2B", "SHANK2", "SLC12A8", "SMPDL3B", "STEAP3", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZKSCAN1", "ZNF350", "ZNF614"],
+      "svg": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x.pdf"
+    },
+    {
+      "id": "BB3_down__HSPCcouplevsNormal_1_5x_up",
+      "set1": "BB3_down",
+      "set2": "HSPCcouplevsNormal_1.5x_up",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 875,
+      "intersection_count": 43,
+      "intersection_genes": ["ABCC4", "ACACA", "ACLY", "ACSL3", "ADRA2A", "AR", "ATP2C1", "AVL9", "BCL9", "BMP6", "DDX21", "EEF2", "EMB", "ENTPD5", "FARP1", "FASN", "GCNT1", "HDLBP", "IMPDH2", "LRBA", "MAOA", "MEX3A", "MIA3", "MLEC", "MON1B", "NCAPD3", "NEK6", "P4HA1", "PLEKHH1", "PLXNB3", "RALGAPA2", "RORC", "SAPCD2", "SHANK2", "SLC12A8", "SMPDL3B", "TMTC4", "TRIM14", "TWNK", "ZBTB16", "ZKSCAN1", "ZNF350", "ZNF614"],
+      "svg": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x_up.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x_up.pdf"
+    },
+    {
+      "id": "BB3_down__HSPCcouplevsNormal_1_5x_down",
+      "set1": "BB3_down",
+      "set2": "HSPCcouplevsNormal_1.5x_down",
+      "method": "Venn",
+      "count1": 286,
+      "count2": 1325,
+      "intersection_count": 12,
+      "intersection_genes": ["AKAP12", "ANXA6", "ARHGEF17", "CHST3", "DUSP4", "FLNA", "HR", "ISYNA1", "KCNH2", "PRIMA1", "SH3PXD2B", "STEAP3"],
+      "svg": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x_down.svg",
+      "pdf": "assets/plots/Venn_BB3_down_vs_HSPCcouplevsNormal_1_5x_down.pdf"
     },
     {
       "id": "BB3_1_5x__BB3_1_5x_up",

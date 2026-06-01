@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Denervation_1_5x_down_Aver","Denervation_1_5x_down_Aver",37,0.312790769421383,0.894699216305141,0.570232558139535,0.570232558139535,NA,5756,"tags=41%, list=32%, signal=28%","KLF15/SPRYD7/MFAP5/NUP50/MAT1A/SAMM50/POLR2J/LZTFL1/STAT1/HPRT1/MAPK9/COPS3/PATJ/XPNPEP1/MTMR3",37

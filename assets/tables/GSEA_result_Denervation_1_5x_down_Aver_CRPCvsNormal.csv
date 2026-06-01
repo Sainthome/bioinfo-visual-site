@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Denervation_1_5x_down_Aver","Denervation_1_5x_down_Aver",37,-0.37121895557494,-1.10458817049569,0.292833035537026,0.292833035537026,NA,2291,"tags=22%, list=13%, signal=19%","THBD/LZTFL1/CTSE/PLEK2/MFAP5/TRIM2/MAT1A/WFDC2",37

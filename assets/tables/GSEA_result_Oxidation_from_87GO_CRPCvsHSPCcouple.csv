@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Oxidation_from_87GO","Oxidation_from_87GO",9,0.940464453938,2.00037809010621,1.15509741658595e-05,1.15509741658595e-05,NA,1096,"tags=100%, list=6%, signal=94%","NDUFAB1/COX6A1/UQCR11/COX14/NDUFB1/COX8A/NDUFC2/NDUFS5/BLOC1S1",9

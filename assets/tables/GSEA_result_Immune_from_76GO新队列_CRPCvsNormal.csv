@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Immune_from_76GO新队列","Immune_from_76GO新队列",12,0.270673227166683,0.617565852314802,0.933452168746286,0.933452168746286,NA,5249,"tags=33%, list=29%, signal=24%","ANXA3/PHB2/TNFRSF4/TYROBP",12

@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"Immune_from_111GO","Immune_from_111GO",9,-0.529957301604648,-1.09830691987744,0.368274582560297,0.368274582560297,NA,2711,"tags=56%, list=15%, signal=47%","TNFRSF4/HTR2A/B2M/TFRC/AXL",9

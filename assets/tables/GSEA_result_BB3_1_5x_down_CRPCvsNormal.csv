@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes"
+"BB3_1_5x_down","BB3_1_5x_down",67,0.325676011636486,1.08726668907068,0.288319672131148,0.288319672131148,NA,1162,"tags=18%, list=6%, signal=17%","SAPCD2/RALGAPA2/MEX3A/ADRA2A/PLXNB3/ACACA/PLEKHH1/ANKRD13B/ZBTB16/P4HA1/HELZ2/SLC26A1",67

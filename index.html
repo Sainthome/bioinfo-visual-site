@@ -22,6 +22,9 @@
     .result-grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
     .plot-box { overflow:auto; min-height:420px; display:flex; align-items:center; justify-content:center; background:#fff; }
     .plot-box img { max-width:100%; height:auto; }
+    .plot-stack { display:flex; flex-direction:column; gap:14px; align-items:center; width:100%; }
+    .plot-stack img { max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:white; }
+    .subhead { font-size:15px; font-weight:700; margin:14px 0 8px; }
     .meta { font-size:14px; line-height:1.65; color:#2a3441; }
     .links { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
     .links a { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--blue); text-decoration:none; background:#fff; }
@@ -76,6 +79,7 @@ function opt(sel, values) {
     sel.appendChild(o);
   });
 }
+function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 function baseNameFromGo(item) { return item.gene_set.replace(/_(allDEGs|upDEGs|downDEGs)$/,"").replace(/(all|up|down)$/,""); }
 function variantOf(name) {
   if (/downDEGs$|down\d*$|_down$/i.test(name)) return "down";
@@ -86,6 +90,7 @@ function goBaseName(name) {
   return name
     .replace(/_1_5x_(allDEGs|upDEGs|downDEGs)$/i, "_1_5x")
     .replace(/_(allDEGs|upDEGs|downDEGs)$/i, "")
+    .replace(/_(all|up|down)$/i, "")
     .replace(/_1_5x(all|up|down)(\d+)?$/i, "_1_5x")
     .replace(/(all|up|down)(\d+)?$/i, "");
 }
@@ -96,19 +101,21 @@ function refreshControls() {
   $("geneSet2Wrap").classList.toggle("hidden", method !== "Venn");
   $("variantWrap").classList.toggle("hidden", method === "GSEA" || method === "Venn");
   if (method === "差异基因") {
-    opt(geneSetSel, manifest.deg_sets.map(x => x.name));
+    opt(geneSetSel, manifest.deg_sets.map(x => ({ value: x.name, label: x.display_name || displayName(x.name) })));
   } else if (method === "GO") {
     opt(goSortSel, [...new Set(manifest.go.map(x => x.sort))]);
     const sort = goSortSel.value || [...new Set(manifest.go.map(x => x.sort))][0];
     const variant = variantSel.value || "all";
     const filtered = manifest.go.filter(x => x.sort === sort && variantOf(x.gene_set) === variant);
-    opt(geneSetSel, [...new Set(filtered.map(x => goBaseName(x.gene_set)))]);
+    const seenGo = new Set();
+    opt(geneSetSel, filtered.filter(x => { const b = goBaseName(x.gene_set); if (seenGo.has(b)) return false; seenGo.add(b); return true; }).map(x => ({ value: goBaseName(x.gene_set), label: displayName(goBaseName(x.gene_set)) })));
   } else if (method === "GSEA") {
-    opt(geneSetSel, [...new Set(manifest.gsea.map(x => x.gene_set))]);
+    const seen = new Set();
+    opt(geneSetSel, manifest.gsea.filter(x => { if (seen.has(x.gene_set)) return false; seen.add(x.gene_set); return true; }).map(x => ({ value: x.gene_set, label: x.display_name || displayName(x.gene_set) })));
     refreshBackgrounds();
   } else {
-    opt(geneSetSel, manifest.venn_sets.map(x => x.name));
-    opt(geneSet2Sel, manifest.venn_sets.map(x => x.name));
+    opt(geneSetSel, manifest.venn_sets.map(x => ({ value: x.name, label: displayName(x.name) })));
+    opt(geneSet2Sel, manifest.venn_sets.map(x => ({ value: x.name, label: displayName(x.name) })));
     if (geneSet2Sel.selectedIndex === geneSetSel.selectedIndex && geneSet2Sel.options.length > 1) {
       geneSet2Sel.selectedIndex = 1;
     }
@@ -135,9 +142,15 @@ async function loadCsv(path) {
   return {head, rows};
 }
 async function renderTable(path) {
+  if (!path) { $("tableBox").classList.add("hidden"); $("tableBox").innerHTML = ""; return; }
   const {head, rows} = await loadCsv(path);
   const shown = rows.slice(0, 300);
   $("tableBox").innerHTML = `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${shown.map(r=>`<tr>${head.map((_,i)=>`<td>${r[i] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+async function showTable(path) {
+  if (!path) return;
+  $("tableBox").classList.remove("hidden");
+  await renderTable(path);
 }
 function setSummary() {
   $("summary").innerHTML = `
@@ -155,21 +168,28 @@ async function showResult() {
   let item = null;
   if (method === "差异基因") {
     item = manifest.deg_sets.find(x => x.name === geneSetSel.value);
-    $("meta").innerHTML = `<b>${item.name}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
-    $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    const heatmaps = (manifest.heatmaps || []).filter(x => x.gene_set === item.name);
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.name)}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
+    if (heatmaps.length) {
+      $("plotBox").innerHTML = `<div class="plot-stack">${heatmaps.map(h => `<div style="width:100%"><div class="subhead">${displayName(h.display_name)} ${h.sheet}</div><img src="${h.svg}" alt="heatmap"></div>`).join("")}</div>`;
+    } else {
+      $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    }
     $("tableBox").classList.remove("hidden");
     await renderTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.table_csv}" download>下载 CSV</a>`;
+    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${h.pdf}" download>下载热图 PDF</a>`).join("")}`;
   } else if (method === "GO") {
     item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && x.sort === goSortSel.value && variantOf(x.gene_set) === variantSel.value);
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="GO plot">`;
-    $("meta").innerHTML = `<b>${item.gene_set}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
   } else if (method === "GSEA") {
     item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="GSEA plot">`;
-    $("meta").innerHTML = `<b>${item.gene_set}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
   } else {
     item = manifest.venn.find(x =>
       (x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value) ||
@@ -181,7 +201,7 @@ async function showResult() {
       return;
     }
     $("plotBox").innerHTML = `<img src="${item.svg}" alt="Venn plot">`;
-    $("meta").innerHTML = `<b>${item.set1}</b> vs <b>${item.set2}</b><br>${item.set1}：${item.count1}<br>${item.set2}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
+    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因预览：${(item.intersection_genes || []).join(", ")}`;
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
   }
 }
