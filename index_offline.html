@@ -97,7 +97,7 @@ function imageHtml(src, alt) {
 }
 function versionedHeatmapAsset(src) {
   if (!src) return src;
-  return `${src}${src.includes("?") ? "&" : "?"}v=tricolor_20260603`;
+  return `${src}${src.includes("?") ? "&" : "?"}v=all_degs_20260603`;
 }
 function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 
@@ -2365,13 +2365,13 @@ manifest = {
   ],
   "heatmaps": [
     {
-      "id": "Denervation_Aver_1.5x__1.5x均值",
+      "id": "Denervation_Aver_1.5x__all_DEGs",
       "gene_set": "Denervation_Aver_1.5x",
       "display_name": "PR-DV_1.5x_Aver",
-      "sheet": "1.5x均值",
-      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.svg",
-      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.pdf",
-      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_1_5x均值.png",
+      "sheet": "all_DEGs",
+      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png",
       "rows": 149,
       "columns": 8,
       "groups": [
@@ -2382,13 +2382,13 @@ manifest = {
       "source_file": "Denervation_Aver_expression.xlsx"
     },
     {
-      "id": "Denervation_everyn_1.5x__每个n均1.5x",
+      "id": "Denervation_everyn_1.5x__all_DEGs",
       "gene_set": "Denervation_everyn_1.5x",
       "display_name": "PR-DV_1.5x_everyn",
-      "sheet": "每个n均1.5x",
-      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.svg",
-      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.pdf",
-      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_每个n均1_5x.png",
+      "sheet": "all_DEGs",
+      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png",
       "rows": 107,
       "columns": 8,
       "groups": [
@@ -2399,35 +2399,18 @@ manifest = {
       "source_file": "Denervation_everyn_expression.xlsx"
     },
     {
-      "id": "BB3_1.5x__BB3up",
+      "id": "BB3_1.5x__all_DEGs",
       "gene_set": "BB3_1.5x",
       "display_name": "B3R-R_1.5x",
-      "sheet": "BB3up",
-      "svg": "assets/plots/Heatmap_BB3_1_5x_BB3up.svg",
-      "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3up.pdf",
-      "png": "assets/plots/Heatmap_BB3_1_5x_BB3up.png",
-      "rows": 100,
+      "sheet": "all_up_down",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png",
+      "rows": 175,
       "columns": 19,
       "groups": [
         "BB12",
         "BB123",
-        "Control"
-      ],
-      "source_file": "BB3_1.5x_expression.xlsx"
-    },
-    {
-      "id": "BB3_1.5x__BB3down",
-      "gene_set": "BB3_1.5x",
-      "display_name": "B3R-R_1.5x",
-      "sheet": "BB3down",
-      "svg": "assets/plots/Heatmap_BB3_1_5x_BB3down.svg",
-      "pdf": "assets/plots/Heatmap_BB3_1_5x_BB3down.pdf",
-      "png": "assets/plots/Heatmap_BB3_1_5x_BB3down.png",
-      "rows": 75,
-      "columns": 19,
-      "groups": [
-        "Prop",
-        "Combi",
         "Control"
       ],
       "source_file": "BB3_1.5x_expression.xlsx"
