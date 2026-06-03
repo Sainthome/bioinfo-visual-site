@@ -95,6 +95,10 @@ function imageHtml(src, alt) {
   const safeAlt = escAttr(alt);
   return `<div class="image-wrap"><div class="loading"><span class="spinner"></span><span>loading......</span></div><img src="${safeSrc}" alt="${safeAlt}" loading="lazy" decoding="async" onload="this.classList.add(&quot;loaded&quot;); this.previousElementSibling.style.display=&quot;none&quot;;" onerror="this.previousElementSibling.textContent=&quot;图片加载失败&quot;;"></div>`;
 }
+function versionedHeatmapAsset(src) {
+  if (!src) return src;
+  return `${src}${src.includes("?") ? "&" : "?"}v=tricolor_20260603`;
+}
 function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 
 function sortLabel(x) {
@@ -237,13 +241,13 @@ async function showResult() {
     const heatmaps = (manifest.heatmaps || []).filter(x => x.gene_set === item.name);
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.name)}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
     if (heatmaps.length) {
-      $("plotBox").innerHTML = `<div class="plot-stack">${heatmaps.map(h => `<div style="width:100%"><div class="subhead">${displayName(h.display_name)} ${h.sheet}</div>${imageHtml(h.png || h.svg, "heatmap")}</div>`).join("")}</div>`;
+      $("plotBox").innerHTML = `<div class="plot-stack">${heatmaps.map(h => `<div style="width:100%"><div class="subhead">${displayName(h.display_name)} ${h.sheet}</div>${imageHtml(versionedHeatmapAsset(h.png || h.svg), "heatmap")}</div>`).join("")}</div>`;
     } else {
       $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
     }
     $("tableBox").classList.remove("hidden");
     await renderTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${h.pdf}" download>下载热图 PDF</a>`).join("")}`;
+    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${versionedHeatmapAsset(h.pdf)}" download>下载热图 PDF</a>`).join("")}`;
   } else if (method === "GO") {
     item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && sortKey(x.sort) === sortKey(goSortSel.value) && variantOf(x.gene_set) === variantSel.value);
     if (!item) {
