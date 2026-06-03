@@ -97,7 +97,7 @@ function imageHtml(src, alt) {
 }
 function versionedHeatmapAsset(src) {
   if (!src) return src;
-  return `${src}${src.includes("?") ? "&" : "?"}v=all_degs_20260603`;
+  return `${src}${src.includes("?") ? "&" : "?"}v=top50_20260604`;
 }
 function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 
@@ -2368,11 +2368,11 @@ manifest = {
       "id": "Denervation_Aver_1.5x__all_DEGs",
       "gene_set": "Denervation_Aver_1.5x",
       "display_name": "PR-DV_1.5x_Aver",
-      "sheet": "all_DEGs",
+      "sheet": "all_DEGs_top50_each_direction",
       "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
       "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png",
-      "rows": 149,
+      "rows": 88,
       "columns": 8,
       "groups": [
         "Control",
@@ -2385,11 +2385,11 @@ manifest = {
       "id": "Denervation_everyn_1.5x__all_DEGs",
       "gene_set": "Denervation_everyn_1.5x",
       "display_name": "PR-DV_1.5x_everyn",
-      "sheet": "all_DEGs",
+      "sheet": "all_DEGs_top50_each_direction",
       "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
       "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png",
-      "rows": 107,
+      "rows": 81,
       "columns": 8,
       "groups": [
         "Control",
@@ -2402,11 +2402,11 @@ manifest = {
       "id": "BB3_1.5x__all_DEGs",
       "gene_set": "BB3_1.5x",
       "display_name": "B3R-R_1.5x",
-      "sheet": "all_up_down",
+      "sheet": "all_up_down_top50_each",
       "svg": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.pdf",
       "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png",
-      "rows": 175,
+      "rows": 100,
       "columns": 19,
       "groups": [
         "BB12",
