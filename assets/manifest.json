@@ -2127,9 +2127,9 @@
       "rows": 100,
       "columns": 19,
       "groups": [
-        "BB12",
-        "BB123",
-        "Control"
+        "Control",
+        "?12",
+        "?123"
       ],
       "source_file": "BB3_1.5x_expression.xlsx"
     }

@@ -97,7 +97,11 @@ function imageHtml(src, alt) {
 }
 function versionedHeatmapAsset(src) {
   if (!src) return src;
-  return `${src}${src.includes("?") ? "&" : "?"}v=top50_20260604`;
+  return `${src}${src.includes("?") ? "&" : "?"}v=go_heatmap_20260604`;
+}
+function versionedGoAsset(src) {
+  if (!src) return src;
+  return `${src}${src.includes("?") ? "&" : "?"}v=go_order_20260604`;
 }
 function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
 
@@ -255,7 +259,7 @@ async function showResult() {
       $("meta").innerHTML = "";
       return;
     }
-    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "GO plot")}</div>`;
+    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(versionedGoAsset(item.png || item.svg), "GO plot")}</div>`;
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
     await showTable(item.table_csv);
     $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
