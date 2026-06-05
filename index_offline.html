@@ -6,22 +6,20 @@
   <title>新队列分析可视化</title>
   <style>
     :root { color-scheme: light; --line:#d8dde3; --ink:#1b2430; --muted:#5f6b7a; --blue:#0f7f99; --brown:#8b5a3c; --bg:#f5f7fa; }
-    body { margin:0; font-family: "Microsoft YaHei", Arial, sans-serif; background:var(--bg); color:var(--ink); }
+    body { margin:0; font-family:"Microsoft YaHei", Arial, sans-serif; background:var(--bg); color:var(--ink); }
     header { background:#fff; border-bottom:1px solid var(--line); padding:18px 28px; }
     h1 { margin:0; font-size:24px; }
     main { max-width:1320px; margin:0 auto; padding:22px; }
     .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
-    .controls { display:grid; grid-template-columns: repeat(4, minmax(180px,1fr)); gap:12px; align-items:end; }
+    .controls { display:grid; grid-template-columns:repeat(4, minmax(180px,1fr)); gap:12px; align-items:end; }
     label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
     select, button, input { width:100%; box-sizing:border-box; border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:9px 10px; font-size:14px; }
     button { cursor:pointer; background:var(--blue); color:#fff; border-color:var(--blue); font-weight:600; }
-    .secondary { background:#fff; color:var(--blue); }
-    .summary { display:grid; grid-template-columns: repeat(4, minmax(160px,1fr)); gap:10px; }
+    .summary { display:grid; grid-template-columns:repeat(4, minmax(160px,1fr)); gap:10px; }
     .metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfd; }
     .metric strong { display:block; font-size:20px; margin-top:4px; }
-    .result-grid { display:grid; grid-template-columns: minmax(0, 1fr) 380px; gap:16px; align-items:start; }
+    .result-grid { display:grid; grid-template-columns:minmax(0, 1fr) 380px; gap:16px; align-items:start; }
     .plot-box { overflow:auto; min-height:420px; display:flex; align-items:flex-start; justify-content:flex-start; background:#fff; }
-    .plot-box img { max-width:100%; height:auto; }
     .plot-stack { display:flex; flex-direction:column; gap:14px; align-items:flex-start; width:100%; }
     .plot-stack img { max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:white; }
     .image-wrap { position:relative; max-width:100%; min-height:180px; }
@@ -41,7 +39,7 @@
     th { position:sticky; top:0; background:#eef3f6; }
     .table-wrap { max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
     .hidden { display:none; }
-    @media (max-width: 900px) { .controls, .summary, .result-grid { grid-template-columns:1fr; } }
+    @media (max-width:900px) { .controls, .summary, .result-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -53,14 +51,13 @@
       <div><label>基因集 / 结果集</label><select id="geneSet"></select></div>
       <div id="geneSet2Wrap"><label>基因集 2</label><select id="geneSet2"></select></div>
       <div id="variantWrap"><label>上下调 / 全部</label><select id="variant"><option value="all">全部</option><option value="up">上调</option><option value="down">下调</option></select></div>
+      <div id="heatmapTypeWrap"><label>热图类型</label><select id="heatmapType"></select></div>
       <div id="backgroundWrap"><label>GSEA 背景队列</label><select id="background"></select></div>
       <div id="goSortWrap"><label>GO 排序</label><select id="goSort"></select></div>
       <div><button id="showBtn">显示结果</button></div>
     </div>
   </section>
-  <section class="panel">
-    <div class="summary" id="summary"></div>
-  </section>
+  <section class="panel"><div class="summary" id="summary"></div></section>
   <section class="panel result-grid">
     <div>
       <div id="plotBox" class="plot-box"></div>
@@ -74,218 +71,8 @@
   </section>
 </main>
 <script>
-let manifest;
-const $ = id => document.getElementById(id);
-const methodSel = $("method"), geneSetSel = $("geneSet"), geneSet2Sel = $("geneSet2"), variantSel = $("variant"), bgSel = $("background"), goSortSel = $("goSort");
-const methods = ["差异基因", "GSEA", "GO", "Venn"];
-
-function opt(sel, values) {
-  sel.innerHTML = "";
-  values.forEach(v => {
-    const o = document.createElement("option");
-    if (typeof v === "object") { o.value = v.value; o.textContent = v.label; } else { o.value = v; o.textContent = v; }
-    sel.appendChild(o);
-  });
-}
-function escAttr(x) {
-  return String(x ?? "").replaceAll("&", "&amp;").replaceAll(String.fromCharCode(34), "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-function imageHtml(src, alt) {
-  const safeSrc = escAttr(src);
-  const safeAlt = escAttr(alt);
-  return `<div class="image-wrap"><div class="loading"><span class="spinner"></span><span>loading......</span></div><img src="${safeSrc}" alt="${safeAlt}" loading="lazy" decoding="async" onload="this.classList.add(&quot;loaded&quot;); this.previousElementSibling.style.display=&quot;none&quot;;" onerror="this.previousElementSibling.textContent=&quot;图片加载失败&quot;;"></div>`;
-}
-function versionedHeatmapAsset(src) {
-  if (!src) return src;
-  return `${src}${src.includes("?") ? "&" : "?"}v=heatmap_row_cluster_20260604`;
-}
-function versionedGoAsset(src) {
-  if (!src) return src;
-  return `${src}${src.includes("?") ? "&" : "?"}v=go_order_20260604`;
-}
-function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
-
-function sortLabel(x) {
-  const k = sortKey(x);
-  if (k === "GeneRatio") return "按GeneRatio排列";
-  if (k === "FoldEnrichment") return "按FoldEnrichment排列";
-  if (k === "enrichGO") return "enrichGO";
-  return k;
-}
-function sortKey(x) {
-  const s = String(x || "").toLowerCase();
-  if (s.includes("generatio") || s.includes("gene ratio")) return "GeneRatio";
-  if (s.includes("foldenrichment") || s.includes("fold")) return "FoldEnrichment";
-  if (s.includes("enrichgo")) return "enrichGO";
-  return String(x || "");
-}
-function withCount(label, count) {
-  return count === null || count === undefined || count === "" ? label : `${label} (${count})`;
-}
-function countByName(name) {
-  if (!name) return null;
-  const v = (manifest.venn_sets || []).find(x => x.name === name);
-  if (v && v.count !== undefined) return v.count;
-  const d = (manifest.deg_sets || []).find(x => x.name === name);
-  if (d && d.all_count !== undefined) return d.all_count;
-  return null;
-}
-function countForGoItem(item) {
-  if (!item) return null;
-  const exact = countByName(item.gene_set);
-  if (exact !== null) return exact;
-  const base = goBaseName(item.gene_set);
-  const variant = variantOf(item.gene_set);
-  const candidates = [item.gene_set, `${base}_${variant}`, `${base}${variant}`, base];
-  for (const one of candidates) {
-    const n = countByName(one);
-    if (n !== null) return n;
-  }
-  const m = String(item.gene_set || "").match(/(?:up|down)(\d+)$/i);
-  return m ? Number(m[1]) : null;
-}
-function countForGseaItem(item) {
-  const n = countByName(item && item.gene_set);
-  if (n !== null) return n;
-  return item ? item.rows : null;
-}
-function baseNameFromGo(item) { return item.gene_set.replace(/_(allDEGs|upDEGs|downDEGs)$/,"").replace(/(all|up|down)$/,""); }
-function variantOf(name) {
-  if (/downDEGs$|down\d*$|_down$/i.test(name)) return "down";
-  if (/upDEGs$|up\d*$|_up$/i.test(name)) return "up";
-  return "all";
-}
-function goBaseName(name) {
-  return name
-    .replace(/_1_5x_(allDEGs|upDEGs|downDEGs)$/i, "_1_5x")
-    .replace(/_(allDEGs|upDEGs|downDEGs)$/i, "")
-    .replace(/_(all|up|down)$/i, "")
-    .replace(/_1_5x(all|up|down)(\d+)?$/i, "_1_5x")
-    .replace(/(all|up|down)(\d+)?$/i, "");
-}
-function refreshControls() {
-  const method = methodSel.value;
-  $("backgroundWrap").classList.toggle("hidden", method !== "GSEA");
-  $("goSortWrap").classList.toggle("hidden", method !== "GO");
-  $("geneSet2Wrap").classList.toggle("hidden", method !== "Venn");
-  $("variantWrap").classList.toggle("hidden", method === "GSEA" || method === "Venn");
-  if (method === "差异基因") {
-    opt(geneSetSel, manifest.deg_sets.map(x => ({ value: x.name, label: withCount(x.display_name || displayName(x.name), x.all_count) })));
-  } else if (method === "GO") {
-    const sorts = [...new Set(manifest.go.map(x => sortKey(x.sort)))];
-    const previousSort = sortKey(goSortSel.value);
-    opt(goSortSel, sorts.map(s => ({ value: s, label: sortLabel(s) })));
-    if (sorts.includes(previousSort)) goSortSel.value = previousSort;
-    const sort = goSortSel.value || sorts[0];
-    const variant = variantSel.value || "all";
-    const previousGeneSet = geneSetSel.value;
-    const filtered = manifest.go.filter(x => sortKey(x.sort) === sortKey(sort) && variantOf(x.gene_set) === variant);
-    const seenGo = new Set();
-    opt(geneSetSel, filtered.filter(x => { const b = goBaseName(x.gene_set); if (seenGo.has(b)) return false; seenGo.add(b); return true; }).map(x => ({ value: goBaseName(x.gene_set), label: withCount(displayName(goBaseName(x.gene_set)), countForGoItem(x)) })));
-    if ([...geneSetSel.options].some(o => o.value === previousGeneSet)) geneSetSel.value = previousGeneSet;
-  } else if (method === "GSEA") {
-    const seen = new Set();
-    opt(geneSetSel, manifest.gsea.filter(x => { if (seen.has(x.gene_set)) return false; seen.add(x.gene_set); return true; }).map(x => ({ value: x.gene_set, label: withCount(x.display_name || displayName(x.gene_set), countForGseaItem(x)) })));
-    refreshBackgrounds();
-  } else {
-    opt(geneSetSel, manifest.venn_sets.map(x => ({ value: x.name, label: withCount(displayName(x.name), x.count) })));
-    opt(geneSet2Sel, manifest.venn_sets.map(x => ({ value: x.name, label: withCount(displayName(x.name), x.count) })));
-    if (geneSet2Sel.selectedIndex === geneSetSel.selectedIndex && geneSet2Sel.options.length > 1) {
-      geneSet2Sel.selectedIndex = 1;
-    }
-  }
-}
-function refreshBackgrounds() {
-  const gs = geneSetSel.value;
-  opt(bgSel, manifest.gsea.filter(x => x.gene_set === gs).map(x => ({ value: x.background, label: x.background_label || x.background })));
-}
-async function loadCsv(path) {
-  const txt = await fetch(path).then(r => r.text());
-  const rows = txt.trim().split(/\r?\n/).map(line => {
-    const out = []; let cur = "", q = false;
-    for (let i=0;i<line.length;i++) {
-      const ch = line[i], nx = line[i+1];
-      if (ch === "\"" && q && nx === "\"") { cur += ch; i++; }
-      else if (ch === "\"") q = !q;
-      else if (ch === "," && !q) { out.push(cur); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur); return out;
-  });
-  const head = rows.shift();
-  return {head, rows};
-}
-async function renderTable(path) {
-  if (!path) { $("tableBox").classList.add("hidden"); $("tableBox").innerHTML = ""; return; }
-  const {head, rows} = await loadCsv(path);
-  const shown = rows.slice(0, 300);
-  $("tableBox").innerHTML = `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${shown.map(r=>`<tr>${head.map((_,i)=>`<td>${r[i] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-}
-async function showTable(path) {
-  if (!path) return;
-  $("tableBox").classList.remove("hidden");
-  await renderTable(path);
-}
-function setSummary() {
-  $("summary").innerHTML = `
-    <div class="metric">表达矩阵对象<strong>${manifest.expression_matrices.length}</strong></div>
-    <div class="metric">差异基因表<strong>${manifest.deg_sets.length}</strong></div>
-    <div class="metric">GO 图<strong>${manifest.go.length}</strong></div>
-    <div class="metric">GSEA 图<strong>${manifest.gsea.length}</strong></div>
-    <div class="metric">Venn 图<strong>${manifest.venn.length}</strong></div>`;
-}
-async function showResult() {
-  $("plotBox").innerHTML = "";
-  $("tableBox").classList.add("hidden");
-  $("links").innerHTML = "";
-  const method = methodSel.value;
-  let item = null;
-  if (method === "差异基因") {
-    item = manifest.deg_sets.find(x => x.name === geneSetSel.value);
-    const heatmaps = (manifest.heatmaps || []).filter(x => x.gene_set === item.name);
-    $("meta").innerHTML = `<b>${item.display_name || displayName(item.name)}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}`;
-    if (heatmaps.length) {
-      $("plotBox").innerHTML = `<div class="plot-stack">${heatmaps.map(h => `<div style="width:100%"><div class="subhead">${displayName(h.display_name)} ${h.sheet}</div>${imageHtml(versionedHeatmapAsset(h.png || h.svg), "heatmap")}</div>`).join("")}</div>`;
-    } else {
-      $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
-    }
-    $("tableBox").classList.remove("hidden");
-    await renderTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${heatmaps.map(h => `<a href="${versionedHeatmapAsset(h.pdf)}" download>下载热图 PDF</a>`).join("")}`;
-  } else if (method === "GO") {
-    item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && sortKey(x.sort) === sortKey(goSortSel.value) && variantOf(x.gene_set) === variantSel.value);
-    if (!item) {
-      $("plotBox").innerHTML = "<div>未找到当前 GO 排序和基因集组合，请重新选择。</div>";
-      $("meta").innerHTML = "";
-      return;
-    }
-    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(versionedGoAsset(item.png || item.svg), "GO plot")}</div>`;
-    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${item.sort}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
-    await showTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
-  } else if (method === "GSEA") {
-    item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
-    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "GSEA plot")}</div>`;
-    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
-    await showTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
-  } else {
-    item = manifest.venn.find(x =>
-      x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value
-    );
-    if (!item) {
-      $("plotBox").innerHTML = "<div>请选择两个不同且已有预生成结果的基因集。</div>";
-      $("meta").innerHTML = "";
-      return;
-    }
-    const intersectionGenes = Array.isArray(item.intersection_genes) ? item.intersection_genes : (item.intersection_genes ? [item.intersection_genes] : []);
-    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "Venn plot")}</div>`;
-    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因数量：${intersectionGenes.length}<br>交集基因：<span class="gene-list">${intersectionGenes.join(", ")}</span>`;
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
-  }
-}
-manifest = {
-  "generated_at": "2026-06-02 01:10:24",
+let manifest = {
+  "generated_at": "2026-06-05 13:46:43",
   "expression_matrices": [
     {
       "object": "crpc_expr2443",
@@ -2369,13 +2156,11 @@ manifest = {
   ],
   "heatmaps": [
     {
-      "id": "Denervation_Aver_1.5x__all_DEGs",
+      "id": "Denervation_Aver_1.5x__top50_DEGs",
       "gene_set": "Denervation_Aver_1.5x",
       "display_name": "PR-DV_1.5x_Aver",
-      "sheet": "all_DEGs_top50_each_direction",
-      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.svg",
-      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
       "rows": 88,
       "columns": 8,
       "groups": [
@@ -2383,16 +2168,53 @@ manifest = {
         "Botox",
         "MPG"
       ],
-      "source_file": "Denervation_Aver_expression.xlsx"
+      "source_file": "Denervation_Aver_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.png"
     },
     {
-      "id": "Denervation_everyn_1.5x__all_DEGs",
+      "id": "Denervation_Aver_1.5x__all_DEGs",
+      "gene_set": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_1.5x_Aver",
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 149,
+      "columns": 8,
+      "groups": [
+        "Control",
+        "Botox",
+        "MPG"
+      ],
+      "source_file": "Denervation_Aver_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_Aver_1.5x__circular_all_DEGs",
+      "gene_set": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_1.5x_Aver",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 149,
+      "columns": 8,
+      "groups": [
+        "Control",
+        "Botox",
+        "MPG"
+      ],
+      "source_file": "Denervation_Aver_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__top50_DEGs",
       "gene_set": "Denervation_everyn_1.5x",
       "display_name": "PR-DV_1.5x_everyn",
-      "sheet": "all_DEGs_top50_each_direction",
-      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.svg",
-      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
       "rows": 81,
       "columns": 8,
       "groups": [
@@ -2400,24 +2222,100 @@ manifest = {
         "Botox",
         "MPG"
       ],
-      "source_file": "Denervation_everyn_expression.xlsx"
+      "source_file": "Denervation_everyn_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.png"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__all_DEGs",
+      "gene_set": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_1.5x_everyn",
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 107,
+      "columns": 8,
+      "groups": [
+        "Control",
+        "Botox",
+        "MPG"
+      ],
+      "source_file": "Denervation_everyn_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__circular_all_DEGs",
+      "gene_set": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_1.5x_everyn",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 107,
+      "columns": 8,
+      "groups": [
+        "Control",
+        "Botox",
+        "MPG"
+      ],
+      "source_file": "Denervation_everyn_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "BB3_1.5x__top50_DEGs",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
+      "rows": 100,
+      "columns": 19,
+      "groups": [
+        "Control",
+        "β12",
+        "β123"
+      ],
+      "source_file": "BB3_1.5x_expression.xlsx",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.png"
     },
     {
       "id": "BB3_1.5x__all_DEGs",
       "gene_set": "BB3_1.5x",
       "display_name": "B3R-R_1.5x",
-      "sheet": "all_up_down_top50_each",
-      "svg": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.svg",
-      "pdf": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png",
-      "rows": 100,
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 175,
       "columns": 19,
       "groups": [
         "Control",
-        "?12",
-        "?123"
+        "β12",
+        "β123"
       ],
-      "source_file": "BB3_1.5x_expression.xlsx"
+      "source_file": "BB3_1.5x_expression.xlsx",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "BB3_1.5x__circular_all_DEGs",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 175,
+      "columns": 19,
+      "groups": [
+        "Control",
+        "β12",
+        "β123"
+      ],
+      "source_file": "BB3_1.5x_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.png"
     }
   ],
   "venn_sets": [
@@ -44877,17 +44775,233 @@ manifest = {
       "png": "assets/plots/Venn_HSPCcouplevsNormal_1_5x_down_vs_HSPCcouplevsNormal_1_5x_up.png"
     }
   ]
+};
+const $ = id => document.getElementById(id);
+const methodSel = $("method"), geneSetSel = $("geneSet"), geneSet2Sel = $("geneSet2"), variantSel = $("variant"), bgSel = $("background"), goSortSel = $("goSort"), heatmapTypeSel = $("heatmapType");
+const methods = ["差异基因", "GSEA", "GO", "Venn"];
+const HEATMAP_VERSION = "heatmap_options_20260605";
+const GO_VERSION = "go_bp_cc_mf_top10_20260605";
+
+function opt(sel, values) {
+  sel.innerHTML = "";
+  values.forEach(v => {
+    const o = document.createElement("option");
+    if (typeof v === "object") { o.value = v.value; o.textContent = v.label; } else { o.value = v; o.textContent = v; }
+    sel.appendChild(o);
+  });
+}
+function escAttr(x) {
+  return String(x ?? "").replaceAll("&", "&amp;").replaceAll(String.fromCharCode(34), "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+function imageHtml(src, alt) {
+  const safeSrc = escAttr(src);
+  const safeAlt = escAttr(alt);
+  return `<div class="image-wrap"><div class="loading"><span class="spinner"></span><span>loading......</span></div><img src="${safeSrc}" alt="${safeAlt}" loading="lazy" decoding="async" onload="this.classList.add(&quot;loaded&quot;); this.previousElementSibling.style.display=&quot;none&quot;;" onerror="this.previousElementSibling.textContent=&quot;图片加载失败&quot;;"></div>`;
+}
+function versionedAsset(src, version) {
+  if (!src) return src;
+  return `${src}${src.includes("?") ? "&" : "?"}v=${version}`;
+}
+function versionedHeatmapAsset(src) { return versionedAsset(src, HEATMAP_VERSION); }
+function versionedGoAsset(src) { return versionedAsset(src, GO_VERSION); }
+function displayName(x) { return (x || "").replaceAll("BB3", "B3R-R").replaceAll("Denervation", "PR-DV"); }
+function sortKey(x) {
+  const s = String(x || "").toLowerCase();
+  if (s.includes("generatio") || s.includes("gene ratio")) return "GeneRatio";
+  if (s.includes("foldenrichment") || s.includes("fold")) return "FoldEnrichment";
+  if (s.includes("enrichgo")) return "enrichGO";
+  return String(x || "");
+}
+function sortLabel(x) {
+  const k = sortKey(x);
+  if (k === "GeneRatio") return "按GeneRatio排列";
+  if (k === "FoldEnrichment") return "按FoldEnrichment排列";
+  return k;
+}
+function withCount(label, count) {
+  return count === null || count === undefined || count === "" ? label : `${label} (${count})`;
+}
+function countByName(name) {
+  if (!name) return null;
+  const v = (manifest.venn_sets || []).find(x => x.name === name);
+  if (v && v.count !== undefined) return v.count;
+  const d = (manifest.deg_sets || []).find(x => x.name === name);
+  if (d && d.all_count !== undefined) return d.all_count;
+  return null;
+}
+function countForGoItem(item) {
+  if (!item) return null;
+  const exact = countByName(item.gene_set);
+  if (exact !== null) return exact;
+  const base = goBaseName(item.gene_set);
+  const variant = variantOf(item.gene_set);
+  for (const one of [item.gene_set, `${base}_${variant}`, `${base}${variant}`, base]) {
+    const n = countByName(one);
+    if (n !== null) return n;
+  }
+  const m = String(item.gene_set || "").match(/(?:up|down)(\d+)$/i);
+  return m ? Number(m[1]) : null;
+}
+function countForGseaItem(item) {
+  const n = countByName(item && item.gene_set);
+  if (n !== null) return n;
+  return item ? item.rows : null;
+}
+function variantOf(name) {
+  if (/downDEGs$|down\d*$|_down$/i.test(name)) return "down";
+  if (/upDEGs$|up\d*$|_up$/i.test(name)) return "up";
+  return "all";
+}
+function goBaseName(name) {
+  return name
+    .replace(/_1_5x_(allDEGs|upDEGs|downDEGs)$/i, "_1_5x")
+    .replace(/_(allDEGs|upDEGs|downDEGs)$/i, "")
+    .replace(/_(all|up|down)$/i, "")
+    .replace(/_1_5x(all|up|down)(\d+)?$/i, "_1_5x")
+    .replace(/(all|up|down)(\d+)?$/i, "");
+}
+function availableHeatmaps(geneSet) {
+  return (manifest.heatmaps || []).filter(x => x.gene_set === geneSet);
+}
+function refreshHeatmapTypes() {
+  const previous = heatmapTypeSel.value;
+  const heatmaps = availableHeatmaps(geneSetSel.value);
+  opt(heatmapTypeSel, heatmaps.map(h => ({ value: h.heatmap_type || h.id, label: h.heatmap_type_label || h.sheet || h.id })));
+  if ([...heatmapTypeSel.options].some(o => o.value === previous)) heatmapTypeSel.value = previous;
+}
+function refreshControls() {
+  const method = methodSel.value;
+  $("backgroundWrap").classList.toggle("hidden", method !== "GSEA");
+  $("goSortWrap").classList.toggle("hidden", method !== "GO");
+  $("geneSet2Wrap").classList.toggle("hidden", method !== "Venn");
+  $("variantWrap").classList.toggle("hidden", method === "GSEA" || method === "Venn");
+  $("heatmapTypeWrap").classList.toggle("hidden", method !== "差异基因");
+  if (method === "差异基因") {
+    const previousGeneSet = geneSetSel.value;
+    opt(geneSetSel, manifest.deg_sets.map(x => ({ value: x.name, label: withCount(x.display_name || displayName(x.name), x.all_count) })));
+    if ([...geneSetSel.options].some(o => o.value === previousGeneSet)) geneSetSel.value = previousGeneSet;
+    refreshHeatmapTypes();
+  } else if (method === "GO") {
+    const sorts = [...new Set(manifest.go.map(x => sortKey(x.sort)))];
+    const previousSort = sortKey(goSortSel.value);
+    opt(goSortSel, sorts.map(s => ({ value: s, label: sortLabel(s) })));
+    if (sorts.includes(previousSort)) goSortSel.value = previousSort;
+    const sort = goSortSel.value || sorts[0];
+    const variant = variantSel.value || "all";
+    const previousGeneSet = geneSetSel.value;
+    const filtered = manifest.go.filter(x => sortKey(x.sort) === sortKey(sort) && variantOf(x.gene_set) === variant);
+    const seenGo = new Set();
+    opt(geneSetSel, filtered.filter(x => { const b = goBaseName(x.gene_set); if (seenGo.has(b)) return false; seenGo.add(b); return true; }).map(x => ({ value: goBaseName(x.gene_set), label: withCount(displayName(goBaseName(x.gene_set)), countForGoItem(x)) })));
+    if ([...geneSetSel.options].some(o => o.value === previousGeneSet)) geneSetSel.value = previousGeneSet;
+  } else if (method === "GSEA") {
+    const seen = new Set();
+    opt(geneSetSel, manifest.gsea.filter(x => { if (seen.has(x.gene_set)) return false; seen.add(x.gene_set); return true; }).map(x => ({ value: x.gene_set, label: withCount(x.display_name || displayName(x.gene_set), countForGseaItem(x)) })));
+    refreshBackgrounds();
+  } else {
+    opt(geneSetSel, manifest.venn_sets.map(x => ({ value: x.name, label: withCount(displayName(x.name), x.count) })));
+    opt(geneSet2Sel, manifest.venn_sets.map(x => ({ value: x.name, label: withCount(displayName(x.name), x.count) })));
+    if (geneSet2Sel.selectedIndex === geneSetSel.selectedIndex && geneSet2Sel.options.length > 1) geneSet2Sel.selectedIndex = 1;
+  }
+}
+function refreshBackgrounds() {
+  const gs = geneSetSel.value;
+  opt(bgSel, manifest.gsea.filter(x => x.gene_set === gs).map(x => ({ value: x.background, label: x.background_label || x.background })));
+}
+async function loadCsv(path) {
+  const txt = await fetch(path).then(r => r.text());
+  const rows = txt.trim().split(/\r?\n/).map(line => {
+    const out = []; let cur = "", q = false;
+    for (let i=0;i<line.length;i++) {
+      const ch = line[i], nx = line[i+1];
+      if (ch === "\"" && q && nx === "\"") { cur += ch; i++; }
+      else if (ch === "\"") q = !q;
+      else if (ch === "," && !q) { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur); return out;
+  });
+  const head = rows.shift();
+  return {head, rows};
+}
+async function renderTable(path) {
+  if (!path) { $("tableBox").classList.add("hidden"); $("tableBox").innerHTML = ""; return; }
+  const {head, rows} = await loadCsv(path);
+  const shown = rows.slice(0, 300);
+  $("tableBox").innerHTML = `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${shown.map(r=>`<tr>${head.map((_,i)=>`<td>${r[i] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+async function showTable(path) {
+  if (!path) return;
+  $("tableBox").classList.remove("hidden");
+  await renderTable(path);
+}
+function setSummary() {
+  $("summary").innerHTML = `
+    <div class="metric">表达矩阵对象<strong>${manifest.expression_matrices.length}</strong></div>
+    <div class="metric">差异基因表<strong>${manifest.deg_sets.length}</strong></div>
+    <div class="metric">GO 图<strong>${manifest.go.length}</strong></div>
+    <div class="metric">GSEA 图<strong>${manifest.gsea.length}</strong></div>
+    <div class="metric">Venn 图<strong>${manifest.venn.length}</strong></div>`;
+}
+async function showResult() {
+  $("plotBox").innerHTML = "";
+  $("tableBox").classList.add("hidden");
+  $("links").innerHTML = "";
+  const method = methodSel.value;
+  let item = null;
+  if (method === "差异基因") {
+    item = manifest.deg_sets.find(x => x.name === geneSetSel.value);
+    const heatmaps = availableHeatmaps(item.name);
+    const selectedHeatmap = heatmaps.find(h => (h.heatmap_type || h.id) === heatmapTypeSel.value) || heatmaps[0];
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.name)}</b><br>全部基因：${item.all_count}<br>上调：${item.up_count}<br>下调：${item.down_count}<br>来源：${item.source_file}${selectedHeatmap ? `<br>热图类型：${selectedHeatmap.heatmap_type_label}<br>热图基因数：${selectedHeatmap.rows}` : ""}`;
+    if (selectedHeatmap) {
+      $("plotBox").innerHTML = `<div class="plot-stack"><div style="width:100%"><div class="subhead">${displayName(selectedHeatmap.display_name)} - ${selectedHeatmap.heatmap_type_label}</div>${imageHtml(versionedHeatmapAsset(selectedHeatmap.png || selectedHeatmap.svg), "heatmap")}</div></div>`;
+    } else {
+      $("plotBox").innerHTML = "<div>差异基因矩阵已在下方表格显示，最多预览前 300 行。</div>";
+    }
+    $("tableBox").classList.remove("hidden");
+    await renderTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.table_csv}" download>下载差异基因 CSV</a>${selectedHeatmap ? `<a href="${versionedHeatmapAsset(selectedHeatmap.pdf)}" download>下载当前热图 PDF</a><a href="${versionedHeatmapAsset(selectedHeatmap.svg)}" download>下载当前热图 SVG</a>` : ""}`;
+  } else if (method === "GO") {
+    item = manifest.go.find(x => goBaseName(x.gene_set) === geneSetSel.value && sortKey(x.sort) === sortKey(goSortSel.value) && variantOf(x.gene_set) === variantSel.value);
+    if (!item) {
+      $("plotBox").innerHTML = "<div>未找到当前 GO 排序和基因集组合，请重新选择。</div>";
+      $("meta").innerHTML = "";
+      return;
+    }
+    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(versionedGoAsset(item.png || item.svg), "GO plot")}</div>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>排序：${sortLabel(item.sort)}<br>GO 条目数：${item.terms}<br>来源：${item.source_file}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${versionedGoAsset(item.svg)}" download>下载 SVG</a><a href="${versionedGoAsset(item.pdf)}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GO 结果 CSV</a>`;
+  } else if (method === "GSEA") {
+    item = manifest.gsea.find(x => x.gene_set === geneSetSel.value && x.background === bgSel.value);
+    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "GSEA plot")}</div>`;
+    $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
+    await showTable(item.table_csv);
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
+  } else {
+    item = manifest.venn.find(x => x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value);
+    if (!item) {
+      $("plotBox").innerHTML = "<div>请选择两个不同且已有预生成结果的基因集。</div>";
+      $("meta").innerHTML = "";
+      return;
+    }
+    const intersectionGenes = Array.isArray(item.intersection_genes) ? item.intersection_genes : (item.intersection_genes ? [item.intersection_genes] : []);
+    $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "Venn plot")}</div>`;
+    $("meta").innerHTML = `<b>${displayName(item.set1)}</b> vs <b>${displayName(item.set2)}</b><br>${displayName(item.set1)}：${item.count1}<br>${displayName(item.set2)}：${item.count2}<br>交集：${item.intersection_count}<br>交集基因数量：${intersectionGenes.length}<br>交集基因：<span class="gene-list">${intersectionGenes.join(", ")}</span>`;
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a>`;
+  }
 }
 opt(methodSel, methods);
 setSummary();
 refreshControls();
 showResult();
 methodSel.addEventListener("change", () => { refreshControls(); showResult(); });
-geneSetSel.addEventListener("change", () => { if (methodSel.value === "GSEA") refreshBackgrounds(); showResult(); });
+geneSetSel.addEventListener("change", () => { if (methodSel.value === "GSEA") refreshBackgrounds(); if (methodSel.value === "差异基因") refreshHeatmapTypes(); showResult(); });
 geneSet2Sel.addEventListener("change", showResult);
 goSortSel.addEventListener("change", () => { refreshControls(); showResult(); });
 bgSel.addEventListener("change", showResult);
 variantSel.addEventListener("change", () => { refreshControls(); showResult(); });
+heatmapTypeSel.addEventListener("change", showResult);
 $("showBtn").addEventListener("click", showResult);
 </script>
 </body>

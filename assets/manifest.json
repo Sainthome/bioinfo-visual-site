@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-02 01:10:24",
+  "generated_at": "2026-06-05 13:46:43",
   "expression_matrices": [
     {
       "object": "crpc_expr2443",
@@ -2083,55 +2083,130 @@
   ],
   "heatmaps": [
     {
+      "id": "Denervation_Aver_1.5x__top50_DEGs",
+      "gene_set": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_1.5x_Aver",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
+      "rows": 88,
+      "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_Aver_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_top50_DEGs.png"
+    },
+    {
       "id": "Denervation_Aver_1.5x__all_DEGs",
       "gene_set": "Denervation_Aver_1.5x",
       "display_name": "PR-DV_1.5x_Aver",
-      "sheet": "all_DEGs_top50_each_direction",
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 149,
+      "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_Aver_expression.xlsx",
       "svg": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png",
-      "rows": 88,
+      "png": "assets/plots/Heatmap_Denervation_Aver_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_Aver_1.5x__circular_all_DEGs",
+      "gene_set": "Denervation_Aver_1.5x",
+      "display_name": "PR-DV_1.5x_Aver",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 149,
       "columns": 8,
-      "groups": [
-        "Control",
-        "Botox",
-        "MPG"
-      ],
-      "source_file": "Denervation_Aver_expression.xlsx"
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_Aver_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_Denervation_Aver_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__top50_DEGs",
+      "gene_set": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_1.5x_everyn",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
+      "rows": 81,
+      "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_everyn_expression.xlsx",
+      "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_top50_DEGs.png"
     },
     {
       "id": "Denervation_everyn_1.5x__all_DEGs",
       "gene_set": "Denervation_everyn_1.5x",
       "display_name": "PR-DV_1.5x_everyn",
-      "sheet": "all_DEGs_top50_each_direction",
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 107,
+      "columns": 8,
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_everyn_expression.xlsx",
       "svg": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png",
-      "rows": 81,
+      "png": "assets/plots/Heatmap_Denervation_everyn_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "Denervation_everyn_1.5x__circular_all_DEGs",
+      "gene_set": "Denervation_everyn_1.5x",
+      "display_name": "PR-DV_1.5x_everyn",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 107,
       "columns": 8,
-      "groups": [
-        "Control",
-        "Botox",
-        "MPG"
-      ],
-      "source_file": "Denervation_everyn_expression.xlsx"
+      "groups": ["Control", "Botox", "MPG"],
+      "source_file": "Denervation_everyn_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_Denervation_everyn_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "BB3_1.5x__top50_DEGs",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "heatmap_type": "top50",
+      "heatmap_type_label": "上下调各前50名热图",
+      "rows": 100,
+      "columns": 19,
+      "groups": ["Control", "β12", "β123"],
+      "source_file": "BB3_1.5x_expression.xlsx",
+      "svg": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.svg",
+      "pdf": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.pdf",
+      "png": "assets/plots/Heatmap_BB3_1_5x_top50_DEGs.png"
     },
     {
       "id": "BB3_1.5x__all_DEGs",
       "gene_set": "BB3_1.5x",
       "display_name": "B3R-R_1.5x",
-      "sheet": "all_up_down_top50_each",
+      "heatmap_type": "all",
+      "heatmap_type_label": "所有差异基因热图",
+      "rows": 175,
+      "columns": 19,
+      "groups": ["Control", "β12", "β123"],
+      "source_file": "BB3_1.5x_expression.xlsx",
       "svg": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.svg",
       "pdf": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.pdf",
-      "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png",
-      "rows": 100,
+      "png": "assets/plots/Heatmap_BB3_1_5x_all_DEGs.png"
+    },
+    {
+      "id": "BB3_1.5x__circular_all_DEGs",
+      "gene_set": "BB3_1.5x",
+      "display_name": "B3R-R_1.5x",
+      "heatmap_type": "circular_all",
+      "heatmap_type_label": "所有差异基因环形热图",
+      "rows": 175,
       "columns": 19,
-      "groups": [
-        "Control",
-        "?12",
-        "?123"
-      ],
-      "source_file": "BB3_1.5x_expression.xlsx"
+      "groups": ["Control", "β12", "β123"],
+      "source_file": "BB3_1.5x_expression.xlsx",
+      "svg": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.svg",
+      "pdf": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.pdf",
+      "png": "assets/plots/CircularHeatmap_BB3_1_5x_all_DEGs.png"
     }
   ],
   "venn_sets": [
