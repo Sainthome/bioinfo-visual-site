@@ -154,6 +154,7 @@
         p-value: ${fmt(item.pvalue)}<br>
         FDR: ${fmt(item.fdr)}`;
       $("links").innerHTML = `
+        <a href="${item.pdf}" download>下载 PDF 矢量图</a>
         <a href="${item.png}" download>下载 PNG</a>
         <a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a>`;
       const img = new Image();
