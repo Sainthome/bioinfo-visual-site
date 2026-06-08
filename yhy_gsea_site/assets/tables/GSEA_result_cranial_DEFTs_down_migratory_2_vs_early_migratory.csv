@@ -1,0 +1,2 @@
+"ID","Description","setSize","enrichmentScore","NES","pvalue","p.adjust","qvalue","rank","leading_edge","core_enrichment","matched_genes","total_genes","matched_fraction"
+"cranial_DEFTs_down","cranial_DEFTs_down",127,-0.304039294337459,-1.09869016180122,0.2801037858238,0.2801037858238,NA,4263,"tags=30%, list=24%, signal=23%","Csde1/Fos/Atf6b/Lef1/Creb3/Jdp2/Zfp507/Ets1/Aff1/Zfp664/Ybx3/Purb/Ubtf/Mafg/Zfp513/Etv6/Zeb2/Aff2/Jun/Stat6/Klf3/E2f3/Mef2d/Egr2/Zfp568/Mbd3/Myc/Tmf1/Cbfb/Nr4a2/Elf4/Foxn2/Junb/Egr1/Arid4a/Arid5a/Stat2/Etv3",127,135,"127/135"
