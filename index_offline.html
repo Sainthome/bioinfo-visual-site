@@ -44977,7 +44977,7 @@ async function showResult() {
     $("plotBox").innerHTML = `<div class="plot-stack">${imageHtml(item.png || item.svg, "GSEA plot")}</div>`;
     $("meta").innerHTML = `<b>${item.display_name || displayName(item.gene_set)}</b><br>背景队列：${item.background_label || item.background}<br>NES：${item.nes ?? "NA"}<br>FDR：${item.fdr ?? "NA"}<br>来源：${item.source_file || "重新计算生成"}`;
     await showTable(item.table_csv);
-    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载全基因排序 CSV</a>`;
+    $("links").innerHTML = `<a href="${item.svg}" download>下载 SVG</a><a href="${item.pdf}" download>下载 PDF 矢量图</a><a href="${item.table_csv}" download>下载 GSEA 结果 CSV</a><a href="${item.rank_csv}" download>下载基因集排序 CSV</a>`;
   } else {
     item = manifest.venn.find(x => x.set1 === geneSetSel.value && x.set2 === geneSet2Sel.value);
     if (!item) {
